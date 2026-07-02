@@ -88,20 +88,76 @@ export function isStoreEnabled(source: string): boolean {
   return true;
 }
 
-// Retorna se o tipo de conteúdo (produto/cupom) está habilitado.
-// Cupom PURO = tem marcador de cupom mas NÃO tem produto específico (sem URL e sem preço).
-// Mensagem com cupom + produto (ex: "R$ 198 | Cupom: PLACAR50 | https://...") = produto.
+// Detecta se um anúncio é de cupom de desconto (não de produto específico).
+//
+// Cupom: a proposta de valor principal é um CÓDIGO de desconto aplicável em vários itens.
+// Produto: a proposta de valor é um item específico (com preço, URL de produto, modelo).
+//
+// Regra principal: tem palavra-chave de cupom E não aponta para URL de produto específico.
+// Exceção: mesmo com URL de produto, se a linguagem for de desconto generalizado (toda a loja,
+// qualquer produto etc.), ainda é cupom.
+export function isCouponAnnouncement(text: string): boolean {
+  // ── 1. Palavras-chave que indicam presença de cupom ───────────────────────
+  const hasCouponKeyword =
+    /\bcupom\b/i.test(text) ||
+    /\bvoucher\b/i.test(text) ||
+    /\bpromo\s*code\b/i.test(text) ||
+    /código\s*(promo\w*|desconto|de\s+desconto)?\s*[:：]/i.test(text) ||
+    /\bcode\s*[:：]/i.test(text) ||
+    /use\s+(o\s+)?(cupom|código|code)\b/i.test(text) ||
+    /com\s+(o\s+)?(cupom|código|code)\b/i.test(text) ||
+    /insira\s+(o\s+)?(cupom|código)\b/i.test(text) ||
+    /aplique\s+(o\s+)?(cupom|código)\b/i.test(text) ||
+    /🏷/.test(text);
+
+  if (!hasCouponKeyword) return false;
+
+  // ── 1b. Título explícito de cupom de loja → cupom imediato ────────────────
+  const isExplicitStoreCoupon =
+    /cupons?\s+(do\s+|da\s+|de\s+)?(mercado\s*livre|shopee|amazon|ml)\b/i.test(text);
+
+  if (isExplicitStoreCoupon) return true;
+
+  // ── 2. Linguagem de desconto generalizado → cupom mesmo com URL de produto ─
+  const isStoreWide =
+    /toda\s+(a\s+)?(loja|categoria|linha|coleção|plataforma|seleção)/i.test(text) ||
+    /em\s+toda\s+a\b/i.test(text) ||
+    /qualquer\s+(produto|item|compra|pedido)/i.test(text) ||
+    /primeira\s+compra/i.test(text) ||
+    /\d+\s*%\s*off\s+(na|no|em|na\s+loja|no\s+site|para\s+toda)/i.test(text) ||
+    /desconto\s+(em\s+toda|para\s+toda|na\s+loja|no\s+site)/i.test(text);
+
+  if (isStoreWide) return true;
+
+  // ── 3. URL de produto específico → anúncio de produto (cupom é extra) ──────
+  // Detecta IDs de produto conhecidos nas URLs
+  const hasSpecificProductUrl =
+    /\/dp\/[A-Z0-9]{10}/i.test(text) ||       // Amazon: /dp/B0XXXXXX
+    /\/gp\/product\/[A-Z0-9]{10}/i.test(text) || // Amazon: /gp/product/
+    /-i\.\d+\.\d+/.test(text) ||               // Shopee: produto-i.shopId.itemId
+    /\/product\/\d+\/\d+/.test(text) ||        // Shopee: /product/shopId/itemId
+    /MLB-?\d{6,}/.test(text) ||                // Mercado Livre: MLB123456
+    /\/p\/[A-Z]{3}\d+/.test(text);             // ML catálogo: /p/MLB123
+
+  if (hasSpecificProductUrl) return false;
+
+  // ── 4. Tem preço específico de produto? ────────────────────────────────────
+  // "De R$ X por R$ Y" ou "R$ X,XX" junto com nome de produto = anúncio de produto
+  const hasPriceWithContext =
+    /de\s+R\$\s*[\d.,]+\s+por\s+R\$/i.test(text) ||
+    /por\s+apenas\s+R\$/i.test(text) ||
+    /apenas\s+R\$\s*[\d.,]+/i.test(text);
+
+  if (hasPriceWithContext) return false;
+
+  // ── 5. Cupom com código explícito + sem produto específico → é cupom ───────
+  return true;
+}
+
+// Retorna se o tipo de conteúdo (produto/cupom) está habilitado no portal.
 export function isTypeEnabled(text: string): boolean {
   const { types } = getSettings();
-  const hasCouponMarker =
-    /cupom\s*[:：]/i.test(text) ||
-    /código\s*[:：]/i.test(text) ||
-    /coupon\s*[:：]/i.test(text) ||
-    /🏷.{0,5}[A-Z0-9]{4,}/i.test(text);
-  const hasProductUrl = /https?:\/\/[^\s]+/i.test(text);
-  const hasProductPrice = /R\$\s*[\d.,]+/i.test(text);
-  const isPureCoupon = hasCouponMarker && !hasProductUrl && !hasProductPrice;
-  return isPureCoupon ? (types.coupon ?? true) : (types.product ?? true);
+  return isCouponAnnouncement(text) ? (types.coupon ?? true) : (types.product ?? true);
 }
 
 // Detecta a loja a partir de URLs numa mensagem
