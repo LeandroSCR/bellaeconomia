@@ -22,6 +22,27 @@ function extractProductKeywords(text: string): string[] {
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
 const URL_REGEX = /https?:\/\/[^\s\])"'>]+/g;
 
+// Domínios por plataforma — só processa se a credencial correspondente estiver configurada
+const AFFILIATE_DOMAINS: { domains: string[]; enabled: () => boolean }[] = [
+  {
+    domains: ['amazon.com.br', 'amzn.to', 'link.amazon'],
+    enabled: () => !!config.AMAZON_PARTNER_TAG,
+  },
+  {
+    domains: ['shopee.com.br', 's.shopee.com.br', 'shope.ee'],
+    enabled: () => !!(config.SHOPEE_APP_ID && config.SHOPEE_SECRET),
+  },
+  {
+    domains: ['mercadolivre.com.br', 'mercadol.com.br', 'meli.la'],
+    enabled: () => !!(config.ML_AFFILIATE_EMAIL && config.ML_AFFILIATE_PASSWORD),
+  },
+];
+
+function isAffiliateUrl(url: string): boolean {
+  const lower = url.toLowerCase();
+  return AFFILIATE_DOMAINS.some(p => p.enabled() && p.domains.some(d => lower.includes(d)));
+}
+
 // Resolve um short link (amzn.to, shope.ee, etc.) até a URL final
 async function resolveRedirect(url: string): Promise<string> {
   const r = await axios.get(url, {
@@ -52,7 +73,13 @@ async function verifyShopeeAffiliate(shortLink: string): Promise<boolean> {
 // Retorna null quando a mensagem deve ser descartada (ex: link /social/ com múltiplos produtos).
 export async function replaceAffiliateLinks(text: string): Promise<string | null> {
   const urls = text.match(URL_REGEX);
-  if (!urls) return text;
+  if (!urls) return null;
+
+  const hasAffiliate = urls.some(isAffiliateUrl);
+  if (!hasAffiliate) {
+    console.log('[FORWARDER] Nenhum link de afiliado encontrado — promoção descartada');
+    return null;
+  }
 
   let result = text;
   let drop = false;

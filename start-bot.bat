@@ -1,14 +1,7 @@
 @echo off
-cd /d "D:\Documentos\Claude\teuscupons"
-
-if not exist "logs" mkdir logs
-
-echo [%date% %time%] Iniciando TeusCupons bot... >> logs\bot.log
-
-call npm run build >> logs\bot.log 2>&1
+timeout /t 20 /nobreak > nul
+cd /d "D:\Documentos\Claude\bellaeconomia"
+call "C:\Users\leand\AppData\Roaming\npm\pm2.cmd" resurrect 2>nul
 if %errorlevel% neq 0 (
-    echo [%date% %time%] ERRO: build falhou, abortando. >> logs\bot.log
-    exit /b 1
+  call "C:\Users\leand\AppData\Roaming\npm\pm2.cmd" start dist\index.js --name bellaeconomia
 )
-
-node dist/index.js >> logs\bot.log 2>&1
