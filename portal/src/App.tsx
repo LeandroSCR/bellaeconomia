@@ -3,11 +3,15 @@ import {
   fetchStats, fetchSettings, fetchActivity, patchSettings, setBotState, formatUptime, formatTime,
   fetchShopeeSuggestions, refreshShopeeSuggestions, approveShopeeSuggestion, rejectShopeeSuggestion,
   fetchQueue, deleteQueueItem, fetchEnginesHealth,
+  fetchCuration, updateCurationItemText, approveCuration, rejectCuration, curationImageUrl,
 } from './api';
-import type { Stats, Settings, Activity, ShopeeSuggestion, ShopeeSuggestionsResponse, QueueItem, EngineHealth } from './api';
+import type {
+  Stats, Settings, Activity, ShopeeSuggestion, ShopeeSuggestionsResponse, QueueItem,
+  EngineHealth, CurationItem,
+} from './api';
 import './App.css';
 
-type TabId = 'dashboard' | 'shopee' | 'queue';
+type TabId = 'dashboard' | 'shopee' | 'queue' | 'curation';
 
 const STORE_LABELS: Record<string, string> = {
   amazon: '🛒 Amazon',
@@ -47,17 +51,19 @@ export default function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [activity, setActivity] = useState<Activity[]>([]);
   const [engines, setEngines] = useState<EngineHealth[]>([]);
+  const [curationPending, setCurationPending] = useState(0);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [s, cfg, act, eng] = await Promise.all([
-        fetchStats(), fetchSettings(), fetchActivity(), fetchEnginesHealth(),
+      const [s, cfg, act, eng, cur] = await Promise.all([
+        fetchStats(), fetchSettings(), fetchActivity(), fetchEnginesHealth(), fetchCuration(),
       ]);
       setStats(s);
       setSettings(cfg);
       setActivity(act);
       setEngines(eng);
+      setCurationPending(cur.counts.pending ?? 0);
       setLastUpdate(new Date());
     } catch {}
   }, []);
@@ -144,10 +150,14 @@ export default function App() {
         <button className={`tab-btn ${tab === 'queue' ? 'active' : ''}`} onClick={() => setTab('queue')}>
           ⏳ Fila {stats && stats.queueSize > 0 ? `(${stats.queueSize})` : ''}
         </button>
+        <button className={`tab-btn ${tab === 'curation' ? 'active' : ''}`} onClick={() => setTab('curation')}>
+          🏷️ Curadoria {curationPending > 0 ? `(${curationPending})` : ''}
+        </button>
       </div>
 
       {tab === 'shopee' && <ShopeeTab />}
       {tab === 'queue' && <QueueTab />}
+      {tab === 'curation' && <CurationTab onChanged={load} />}
 
       <main className="main" style={{ display: tab === 'dashboard' ? undefined : 'none' }}>
         {/* Saúde das Engines */}
@@ -221,6 +231,28 @@ export default function App() {
                   label="🏷️ Cupons"
                   checked={settings?.types.coupon ?? true}
                   onChange={() => toggleType('coupon')}
+                />
+              </div>
+              <p className="section-desc" style={{ marginTop: 10 }}>
+                Cupons não são enviados direto — vão para a aba Curadoria para aprovação manual.
+              </p>
+            </div>
+
+            <div className="divider" />
+
+            <div className="panel-section">
+              <h2 className="section-title">Padronização do canal</h2>
+              <p className="section-desc">Reescreve repasses de produto no template padrão do canal</p>
+              <div className="filter-list">
+                <FilterRow
+                  label="✨ Padronizar repasses"
+                  checked={settings?.standardizeForwards ?? true}
+                  onChange={async () => {
+                    if (!settings) return;
+                    const next = { ...settings, standardizeForwards: !settings.standardizeForwards };
+                    setSettings(next);
+                    await patchSettings({ standardizeForwards: next.standardizeForwards });
+                  }}
                 />
               </div>
             </div>
@@ -506,6 +538,133 @@ function QueueCard({ item, onDelete }: { item: QueueItem; onDelete: (id: string)
       </div>
       <div className="suggestion-actions">
         <button className="s-reject" onClick={() => onDelete(item.id)}>✕ Remover</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Aba Curadoria (cupons aguardando aprovação) ────────────────────────────
+
+function CurationTab({ onChanged }: { onChanged: () => void }) {
+  const [items, setItems] = useState<CurationItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    try {
+      const data = await fetchCuration();
+      setItems(data.items.filter(i => i.status === 'pending'));
+    } catch {} finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const interval = setInterval(load, 10000);
+    return () => clearInterval(interval);
+  }, [load]);
+
+  const handleApprove = async (id: string) => {
+    const result = await approveCuration(id);
+    if (result.ok) {
+      setItems(prev => prev.filter(i => i.id !== id));
+      onChanged();
+    } else {
+      alert(`Falha ao enviar: ${result.errors?.join(', ') ?? 'erro desconhecido'}`);
+    }
+  };
+
+  const handleReject = async (id: string) => {
+    await rejectCuration(id);
+    setItems(prev => prev.filter(i => i.id !== id));
+    onChanged();
+  };
+
+  return (
+    <div className="shopee-tab">
+      <div className="shopee-toolbar">
+        <div className="shopee-counts">
+          <span className="sc-badge sc-pending">{items.length} cupons aguardando</span>
+        </div>
+        <button className="refresh-btn" onClick={load}>🔄 Atualizar</button>
+      </div>
+
+      {loading && <div className="empty-state">Carregando curadoria...</div>}
+
+      {!loading && items.length === 0 && (
+        <div className="empty-state">
+          Nenhum cupom aguardando aprovação. Cupons detectados nos grupos fonte
+          aparecem aqui com os links já trocados pelos seus links de afiliado.
+        </div>
+      )}
+
+      <div className="curation-list">
+        {items.map(item => (
+          <CurationCard key={item.id} item={item} onApprove={handleApprove} onReject={handleReject} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CurationCard({ item, onApprove, onReject }: {
+  item: CurationItem;
+  onApprove: (id: string) => void;
+  onReject: (id: string) => void;
+}) {
+  const [text, setText] = useState(item.processedText);
+  const [saving, setSaving] = useState(false);
+  const [sending, setSending] = useState(false);
+  const edited = text !== item.processedText;
+  const ago = Math.round((Date.now() - item.createdAt) / 60000);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try { await updateCurationItemText(item.id, text); item.processedText = text; }
+    finally { setSaving(false); }
+  };
+
+  const handleApprove = async () => {
+    setSending(true);
+    try {
+      if (edited) await handleSave();
+      await onApprove(item.id);
+    } finally { setSending(false); }
+  };
+
+  return (
+    <div className="curation-card">
+      <div className="curation-main">
+        {item.hasImage && (
+          <img src={curationImageUrl(item.id)} alt="" className="curation-img" />
+        )}
+        <div className="curation-body">
+          <div className="suggestion-meta-row">
+            <span className="activity-source">{SOURCE_LABELS[item.source ?? ''] ?? item.source ?? 'cupom'}</span>
+            {item.groupName && <span className="activity-group">📢 {item.groupName}</span>}
+            <span className="s-meta">⏱ há {ago < 1 ? '<1' : ago}min</span>
+          </div>
+          <textarea
+            className="curation-editor"
+            value={text}
+            onChange={e => setText(e.target.value)}
+            rows={Math.min(12, Math.max(4, text.split('\n').length + 1))}
+            spellCheck={false}
+          />
+        </div>
+      </div>
+      <div className="curation-actions">
+        {edited && (
+          <button className="curation-save" onClick={handleSave} disabled={saving}>
+            {saving ? '💾 Salvando...' : '💾 Salvar edição'}
+          </button>
+        )}
+        <button className="s-approve" onClick={handleApprove} disabled={sending}>
+          {sending ? '⏳ Enviando...' : '✓ Aprovar e enviar'}
+        </button>
+        <button className="s-reject" onClick={() => onReject(item.id)} disabled={sending}>
+          ✗ Rejeitar
+        </button>
       </div>
     </div>
   );

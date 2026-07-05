@@ -1,30 +1,10 @@
 // ══════════════════════════════════════════════════════════════════════════
 // ENGINE CREATOR — tipos
-// Esta engine é ISOLADA da engine de repasse (forwarder).
-// Nunca importe arquivos de src/whatsapp/sourceMonitor, sender, forwarder ou
-// src/scheduler aqui. Ver CLAUDE.md → "Arquitetura de Engines".
+// AdTemplate/AdInput vivem na camada compartilhada (src/shared/templates)
+// porque o forwarder também os usa para padronizar repasses.
 // ══════════════════════════════════════════════════════════════════════════
 
-export interface AdTemplate {
-  id: string;
-  name: string;
-  /** Corpo do template com placeholders: {titulo} {preco} {preco_original}
-   *  {desconto} {cupom} {loja} {link} */
-  content: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface AdInput {
-  titulo: string;
-  link: string;
-  preco?: number;
-  precoOriginal?: number;
-  cupom?: string;
-  loja?: string;
-  /** URL de imagem para enviar como mídia (opcional) */
-  imagem?: string;
-}
+export type { AdTemplate, AdInput } from '../../shared/templates/types';
 
 export interface CreatorHealth {
   status: 'ok' | 'degraded' | 'down';

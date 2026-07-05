@@ -58,6 +58,21 @@ const hasRawText = (db.prepare("SELECT COUNT(*) as n FROM pragma_table_info('dea
 if (!hasRawText) db.exec('ALTER TABLE deals ADD COLUMN raw_text TEXT');
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS curation_items (
+    id TEXT PRIMARY KEY,
+    original_text TEXT NOT NULL,
+    processed_text TEXT NOT NULL,
+    source TEXT,
+    group_name TEXT,
+    image_path TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_curation_status ON curation_items(status);
+`);
+
+db.exec(`
   CREATE TABLE IF NOT EXISTS shopee_suggestions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     item_id TEXT UNIQUE NOT NULL,
@@ -132,6 +147,20 @@ const stmts = {
   getSuggestionById: db.prepare("SELECT * FROM shopee_suggestions WHERE id = ?"),
   countSuggestionsByStatus: db.prepare("SELECT status, COUNT(*) as count FROM shopee_suggestions GROUP BY status"),
   wasRecentlySentDefault: db.prepare('SELECT id FROM sent_messages WHERE deal_id = ? AND sent_at >= ? LIMIT 1'),
+  insertCurationItem: db.prepare(`
+    INSERT OR IGNORE INTO curation_items (id, original_text, processed_text, source, group_name, image_path)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `),
+  getCurationItems: db.prepare(`
+    SELECT * FROM curation_items
+    ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END, created_at DESC
+    LIMIT 100
+  `),
+  getCurationItemById: db.prepare('SELECT * FROM curation_items WHERE id = ?'),
+  updateCurationText: db.prepare("UPDATE curation_items SET processed_text = ? WHERE id = ? AND status = 'pending'"),
+  updateCurationStatus: db.prepare('UPDATE curation_items SET status = ? WHERE id = ?'),
+  countCurationByStatus: db.prepare('SELECT status, COUNT(*) as count FROM curation_items GROUP BY status'),
+  cleanOldCuration: db.prepare("DELETE FROM curation_items WHERE status != 'pending' AND created_at < ?"),
 };
 
 // ── Helper: cede o event loop antes de executar operação síncrona de DB ───────
@@ -316,5 +345,80 @@ export function countShopeeSuggestionsByStatus(): Promise<Record<string, number>
   return run(() => {
     const rows = stmts.countSuggestionsByStatus.all() as Array<{ status: string; count: number }>;
     return Object.fromEntries(rows.map(r => [r.status, r.count]));
+  });
+}
+
+// ── Fila de Curadoria (cupons aguardando aprovação manual) ────────────────────
+
+export interface CurationItem {
+  id: string;
+  originalText: string;
+  processedText: string;
+  source?: string;
+  groupName?: string;
+  imagePath?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: Date;
+}
+
+function rowToCurationItem(r: Record<string, unknown>): CurationItem {
+  return {
+    id: r.id as string,
+    originalText: r.original_text as string,
+    processedText: r.processed_text as string,
+    source: r.source != null ? r.source as string : undefined,
+    groupName: r.group_name != null ? r.group_name as string : undefined,
+    imagePath: r.image_path != null ? r.image_path as string : undefined,
+    status: r.status as CurationItem['status'],
+    createdAt: new Date((r.created_at as number) * 1000),
+  };
+}
+
+/** Salva item na curadoria. Retorna false se já existia (dedup por id). */
+export function saveCurationItem(item: {
+  id: string; originalText: string; processedText: string;
+  source?: string; groupName?: string; imagePath?: string;
+}): Promise<boolean> {
+  return run(() => {
+    const result = stmts.insertCurationItem.run(
+      item.id, item.originalText, item.processedText,
+      item.source ?? null, item.groupName ?? null, item.imagePath ?? null
+    );
+    return result.changes > 0;
+  });
+}
+
+export function getCurationItems(): Promise<CurationItem[]> {
+  return run(() => (stmts.getCurationItems.all() as Record<string, unknown>[]).map(rowToCurationItem));
+}
+
+export function getCurationItemById(id: string): Promise<CurationItem | null> {
+  return run(() => {
+    const row = stmts.getCurationItemById.get(id) as Record<string, unknown> | undefined;
+    return row ? rowToCurationItem(row) : null;
+  });
+}
+
+/** Edita o texto de um item pendente. Retorna false se não existe ou já foi decidido. */
+export function updateCurationText(id: string, text: string): Promise<boolean> {
+  return run(() => stmts.updateCurationText.run(text, id).changes > 0);
+}
+
+export function updateCurationStatus(id: string, status: 'approved' | 'rejected'): Promise<void> {
+  return run(() => { stmts.updateCurationStatus.run(status, id); });
+}
+
+export function countCurationByStatus(): Promise<Record<string, number>> {
+  return run(() => {
+    const rows = stmts.countCurationByStatus.all() as Array<{ status: string; count: number }>;
+    return Object.fromEntries(rows.map(r => [r.status, r.count]));
+  });
+}
+
+/** Remove itens decididos com mais de N dias (limpeza no boot). */
+export function cleanOldCurationItems(days = 7): Promise<void> {
+  return run(() => {
+    const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
+    stmts.cleanOldCuration.run(cutoff);
   });
 }

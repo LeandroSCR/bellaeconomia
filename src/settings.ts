@@ -11,6 +11,7 @@ export interface PortalSettings {
   quietHourStart: number;
   quietHourEnd: number;
   groupRates: Record<string, number>; // group ID → 0–100 (% de mensagens encaminhadas)
+  standardizeForwards: boolean; // padroniza repasses de produto com o template padrão
 }
 
 const DEFAULTS: PortalSettings = {
@@ -27,6 +28,7 @@ const DEFAULTS: PortalSettings = {
   quietHourStart: 22,
   quietHourEnd: 8,
   groupRates: {},
+  standardizeForwards: true,
 };
 
 let cache: PortalSettings | null = null;
@@ -44,6 +46,7 @@ export function getSettings(): PortalSettings {
         quietHourStart: typeof raw.quietHourStart === 'number' ? raw.quietHourStart : DEFAULTS.quietHourStart,
         quietHourEnd: typeof raw.quietHourEnd === 'number' ? raw.quietHourEnd : DEFAULTS.quietHourEnd,
         groupRates: typeof raw.groupRates === 'object' ? raw.groupRates : {},
+        standardizeForwards: typeof raw.standardizeForwards === 'boolean' ? raw.standardizeForwards : DEFAULTS.standardizeForwards,
       };
     } else {
       cache = structuredClone(DEFAULTS);
@@ -66,6 +69,7 @@ export function updateSettings(partial: Partial<PortalSettings>): PortalSettings
     quietHourStart: typeof partial.quietHourStart === 'number' ? clampHour(partial.quietHourStart) : current.quietHourStart,
     quietHourEnd: typeof partial.quietHourEnd === 'number' ? clampHour(partial.quietHourEnd) : current.quietHourEnd,
     groupRates: { ...current.groupRates, ...(partial.groupRates ?? {}) },
+    standardizeForwards: typeof partial.standardizeForwards === 'boolean' ? partial.standardizeForwards : current.standardizeForwards,
   };
   persistSettings(cache);
   return cache;

@@ -367,3 +367,53 @@
   font-size: 13px; font-weight: 600;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+
+/* ── Curadoria de cupons ───────────────────────────────────────────────── */
+
+.curation-list { display: flex; flex-direction: column; gap: 14px; }
+
+.curation-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--yellow);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+
+.curation-main { display: flex; gap: 14px; }
+@media (max-width: 700px) { .curation-main { flex-direction: column; } }
+
+.curation-img {
+  width: 120px; height: 120px; object-fit: cover;
+  border-radius: 8px; flex-shrink: 0;
+  border: 1px solid var(--border-subtle);
+}
+
+.curation-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+
+.curation-editor {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}
+.curation-editor:focus { outline: none; border-color: var(--blue); }
+
+.curation-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+
+.curation-save {
+  padding: 8px 16px; border-radius: 8px;
+  font-size: 13px; font-weight: 700; cursor: pointer;
+  background: rgba(88,166,255,.1); color: var(--blue);
+  border: 1px solid rgba(88,166,255,.25);
+  transition: opacity .15s;
+}
+.curation-save:hover { background: rgba(88,166,255,.2); }
+.curation-save:disabled, .s-approve:disabled, .s-reject:disabled { opacity: .5; cursor: default; }

@@ -8,7 +8,10 @@ import {
   getShopeeSuggestions, saveShopeeSuggestions,
   updateShopeeSuggestionStatus, countShopeeSuggestionsByStatus,
   cleanOldShopeeDeals, getUnsentDeals, markSent,
+  getCurationItems, getCurationItemById, updateCurationText,
+  countCurationByStatus, cleanOldCurationItems,
 } from './database';
+import { approveCurationItem, rejectCurationItem } from './curation/publisher';
 import { getMetrics } from './metrics';
 import { getSettings, updateSettings } from './settings';
 import { config } from './config';
@@ -225,6 +228,57 @@ app.post('/api/creator/ads', async (req, res) => {
   }
 });
 
+// ── Fila de Curadoria (cupons aguardando aprovação manual) ─────────────────
+
+app.get('/api/curation', async (_req, res) => {
+  try {
+    const [items, counts] = await Promise.all([getCurationItems(), countCurationByStatus()]);
+    res.json({
+      items: items.map(i => ({ ...i, createdAt: i.createdAt.getTime(), hasImage: !!i.imagePath, imagePath: undefined })),
+      counts,
+    });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+app.get('/api/curation/:id/image', async (req, res) => {
+  const item = await getCurationItemById(req.params.id);
+  if (!item?.imagePath) { res.status(404).end(); return; }
+  res.sendFile(item.imagePath, err => { if (err) res.status(404).end(); });
+});
+
+app.patch('/api/curation/:id', async (req, res) => {
+  const { text } = req.body as { text?: string };
+  if (!text?.trim()) { res.status(400).json({ error: 'text é obrigatório' }); return; }
+  try {
+    const updated = await updateCurationText(req.params.id, text.trim());
+    if (!updated) { res.status(404).json({ error: 'Item não encontrado ou já decidido' }); return; }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+app.post('/api/curation/:id/approve', async (req, res) => {
+  try {
+    const result = await approveCurationItem(req.params.id);
+    res.status(result.ok ? 200 : 400).json(result);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+app.post('/api/curation/:id/reject', async (req, res) => {
+  try {
+    const ok = await rejectCurationItem(req.params.id);
+    if (!ok) { res.status(404).json({ error: 'Item não encontrado ou já decidido' }); return; }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
 // ── Grupos fonte ───────────────────────────────────────────────────────────
 
 app.get('/api/source-groups', async (_req, res) => {
@@ -314,6 +368,7 @@ process.on('unhandledRejection', (reason) => {
 async function main() {
   console.log('BellaEconomia iniciando...');
   await cleanOldShopeeDeals();
+  await cleanOldCurationItems();
 
   app.listen(config.PORT, () => {
     console.log(`Bot + Portal rodando em http://localhost:${config.PORT}`);

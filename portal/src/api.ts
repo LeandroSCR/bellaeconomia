@@ -19,6 +19,7 @@ export interface Settings {
   delayMinutes: number;
   quietHourStart: number;
   quietHourEnd: number;
+  standardizeForwards: boolean;
 }
 
 export interface Activity {
@@ -121,6 +122,50 @@ export async function approveShopeeSuggestion(id: number): Promise<void> {
 
 export async function rejectShopeeSuggestion(id: number): Promise<void> {
   await fetch(`/api/shopee/suggestions/${id}/reject`, { method: 'POST' });
+}
+
+// ── Fila de Curadoria (cupons) ────────────────────────────────────────────
+
+export interface CurationItem {
+  id: string;
+  originalText: string;
+  processedText: string;
+  source?: string;
+  groupName?: string;
+  hasImage: boolean;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: number;
+}
+
+export interface CurationResponse {
+  items: CurationItem[];
+  counts: Record<string, number>;
+}
+
+export async function fetchCuration(): Promise<CurationResponse> {
+  const r = await fetch(`${BASE}/api/curation`);
+  return r.json();
+}
+
+export async function updateCurationItemText(id: string, text: string): Promise<void> {
+  await fetch(`${BASE}/api/curation/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+}
+
+export async function approveCuration(id: string): Promise<{ ok: boolean; errors?: string[] }> {
+  const r = await fetch(`${BASE}/api/curation/${encodeURIComponent(id)}/approve`, { method: 'POST' });
+  return r.json();
+}
+
+export async function rejectCuration(id: string): Promise<void> {
+  await fetch(`${BASE}/api/curation/${encodeURIComponent(id)}/reject`, { method: 'POST' });
+}
+
+export function curationImageUrl(id: string): string {
+  return `${BASE}/api/curation/${encodeURIComponent(id)}/image`;
 }
 
 // ── Saúde das Engines ─────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { renderTemplate, buildPlaceholderValues, validateAdInput } from '../../src/engines/creator/renderer';
-import type { AdInput } from '../../src/engines/creator/types';
+import { renderTemplate, buildPlaceholderValues, validateAdInput } from '../../src/shared/templates/renderer';
+import type { AdInput } from '../../src/shared/templates/types';
 
 const fullInput: AdInput = {
   titulo: 'Fone Bluetooth XYZ',

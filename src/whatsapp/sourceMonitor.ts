@@ -1,11 +1,12 @@
 import { Message } from 'whatsapp-web.js';
 import { config } from '../config';
 import { getClient, isClientReady } from './client';
-import { wasRecentlySent, markSent, countSentToday } from '../database';
+import { wasRecentlySent, markSent, countSentToday, saveCurationItem } from '../database';
 import { isSpecialDay } from '../calendar/specialDates';
 import { replaceAffiliateLinks } from './forwarder';
 import { canSendNow, markSentNow, enqueue } from '../scheduler/queue';
-import { isStoreEnabled, isTypeEnabled, detectSourceFromText, getSettings } from '../settings';
+import { isStoreEnabled, isTypeEnabled, isCouponAnnouncement, detectSourceFromText, getSettings } from '../settings';
+import { standardizeForward } from '../shared/standardizer';
 import { recordActivity } from '../metrics';
 import { isBotEnabled } from '../botState';
 import { createHash } from 'crypto';
@@ -182,6 +183,37 @@ export async function handleSourceMessage(msg: Message): Promise<void> {
     return;
   }
 
+  // CUPONS não têm item fixo → vão para a fila de curadoria (aprovação manual
+  // no portal) com os links já trocados por afiliados. Nunca são enviados direto.
+  if (isCouponAnnouncement(body)) {
+    const processed = await replaceAffiliateLinks(body);
+    if (processed === null) {
+      console.log('[SOURCE] cupom descartado: sem link afiliado');
+      recordActivity({ type: 'discarded', message: `Cupom sem link afiliado: ${title}`, source, group });
+      return;
+    }
+    let imagePath: string | undefined;
+    if (msg.hasMedia) {
+      try {
+        const mediaObj = await msg.downloadMedia();
+        if (mediaObj) imagePath = (await saveMediaToDisk(dealId, mediaObj)).slice(6); // remove prefixo "local:"
+      } catch { /* segue sem imagem */ }
+    }
+    const isNew = await saveCurationItem({
+      id: dealId,
+      originalText: body,
+      processedText: processed,
+      source,
+      groupName: group,
+      imagePath,
+    });
+    if (isNew) {
+      console.log(`[SOURCE] cupom detectado em "${group}" → fila de curadoria`);
+      recordActivity({ type: 'filtered', message: `Cupom na curadoria: ${title}`, source, group });
+    }
+    return;
+  }
+
   if (!canSendNow()) {
     const firstUrl = body.match(/https?:\/\/[^\s]+/)?.[0] ?? '';
     let imageUrl: string | undefined;
@@ -210,12 +242,17 @@ export async function handleSourceMessage(msg: Message): Promise<void> {
 
   // Substitui links por nossos links de afiliado antes de enviar.
   // null = mensagem deve ser descartada (ex: link ML com múltiplos produtos)
-  const textToSend = await replaceAffiliateLinks(body);
-  if (textToSend === null) {
+  const processedText = await replaceAffiliateLinks(body);
+  if (processedText === null) {
     console.log('[SOURCE] promoção descartada: link ML não resolveu para produto único');
     recordActivity({ type: 'discarded', message: `ML: produto não identificado — ${title}`, source, group });
     return;
   }
+
+  // Padroniza produtos com o template padrão do canal (fallback: texto processado)
+  const textToSend = getSettings().standardizeForwards
+    ? await standardizeForward(body, processedText, source)
+    : processedText;
 
   const client = getClient();
 

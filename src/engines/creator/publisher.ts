@@ -11,8 +11,8 @@ import { getClient, isClientReady } from '../../whatsapp/client';
 import { config } from '../../config';
 import { markSent } from '../../database';
 import { recordActivity } from '../../metrics';
-import { renderTemplate, validateAdInput } from './renderer';
-import { templateStore } from './templateStore';
+import { renderTemplate, validateAdInput } from '../../shared/templates/renderer';
+import { templateStore } from '../../shared/templates/store';
 import { createHash } from 'crypto';
 import type { AdInput, CreatorHealth } from './types';
 

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import { createTemplateStore } from '../../src/engines/creator/templateStore';
+import { createTemplateStore } from '../../src/shared/templates/store';
 
 function tmpFile(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'templates-test-'));

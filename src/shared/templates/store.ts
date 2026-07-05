@@ -1,5 +1,5 @@
 // ══════════════════════════════════════════════════════════════════════════
-// ENGINE CREATOR — persistência de templates custom
+// CAMADA COMPARTILHADA — persistência de templates custom (data/templates.json)
 // Armazena em data/templates.json. Todo I/O é assíncrono (fs.promises).
 // ══════════════════════════════════════════════════════════════════════════
 

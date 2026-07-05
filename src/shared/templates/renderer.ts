@@ -1,5 +1,6 @@
 // ══════════════════════════════════════════════════════════════════════════
-// ENGINE CREATOR — renderizador de templates (funções puras, sem I/O)
+// CAMADA COMPARTILHADA — renderizador de templates (funções puras, sem I/O)
+// Usada pelo creator (anúncios do zero) e pelo forwarder (padronização).
 // ══════════════════════════════════════════════════════════════════════════
 
 import type { AdInput } from './types';

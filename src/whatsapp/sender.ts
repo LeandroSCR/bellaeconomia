@@ -7,6 +7,7 @@ import { formatDeal } from './formatter';
 import { replaceAffiliateLinks } from './forwarder';
 import { isSpecialDay } from '../calendar/specialDates';
 import { isStoreEnabled, isTypeEnabled, getSettings } from '../settings';
+import { standardizeForward } from '../shared/standardizer';
 import { recordActivity } from '../metrics';
 import type { Deal } from '../deals/types';
 
@@ -61,9 +62,14 @@ export async function sendDealToGroups(deal: Deal): Promise<boolean> {
   // Para demais fontes de API, formata a deal estruturada
   const baseMessage = deal.rawText ?? formatDeal(deal);
   // Shopee já tem link afiliado — não reprocessar
-  const message = deal.source === 'shopee'
+  let message = deal.source === 'shopee'
     ? baseMessage
     : (await replaceAffiliateLinks(baseMessage) ?? baseMessage);
+
+  // Produtos vindos de grupos fonte: padroniza com o template padrão do canal
+  if (deal.rawText && deal.source === 'whatsapp' && getSettings().standardizeForwards) {
+    message = await standardizeForward(deal.rawText, message, deal.store);
+  }
 
   // Carrega mídia: local (salva do grupo fonte durante delay) ou URL remota (APIs)
   let media: InstanceType<typeof MessageMedia> | null = null;

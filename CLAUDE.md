@@ -29,7 +29,8 @@ Só altere se o usuário pedir explicitamente uma mudança NESSA engine:
 **Regras de isolamento:**
 - A engine **Creator** (`src/engines/creator/`) NUNCA importa arquivos da zona congelada.
   Ela só usa a infraestrutura compartilhada (ver abaixo).
-- A engine **Forwarder** NUNCA importa nada de `src/engines/`.
+- A engine **Forwarder** NUNCA importa nada de `src/engines/`. O que as duas precisam
+  compartilhar vive em `src/shared/` (templates, extrator, padronizador).
 - A única camada que conhece as duas é o composition root `src/index.ts` (rotas HTTP).
 
 **Infraestrutura compartilhada** (pode ser usada pelas duas engines, mudanças aqui
@@ -102,14 +103,33 @@ O Dashboard mostra a saúde de cada engine separada por status
 ### Engine Creator (criação de anúncios)
 | Arquivo | Responsabilidade |
 |---|---|
-| `src/engines/creator/types.ts` | `AdTemplate`, `AdInput`, `CreatorHealth` |
-| `src/engines/creator/renderer.ts` | `renderTemplate()` — substitui placeholders, remove linhas com placeholder vazio (funções puras) |
-| `src/engines/creator/templateStore.ts` | CRUD de templates em `data/templates.json` (template "Padrão" criado automaticamente; nunca remove o último) |
+| `src/engines/creator/types.ts` | `CreatorHealth` (+ re-exporta AdTemplate/AdInput da camada shared) |
 | `src/engines/creator/publisher.ts` | `publishAd()` — renderiza + envia aos grupos destino; `previewAd()`; contadores de saúde |
 | `src/engines/creator/index.ts` | API pública da engine (só importe daqui) |
 
+### Camada compartilhada de templates e padronização (`src/shared/`)
+Usada pelas DUAS engines — módulos puros ou de I/O local, sem tocar em WhatsApp:
+| Arquivo | Responsabilidade |
+|---|---|
+| `src/shared/templates/types.ts` | `AdTemplate`, `AdInput` |
+| `src/shared/templates/renderer.ts` | `renderTemplate()` — substitui placeholders, remove linhas com placeholder vazio (puro) |
+| `src/shared/templates/store.ts` | CRUD de templates em `data/templates.json` (template "Padrão" auto-criado; nunca remove o último) |
+| `src/shared/adExtractor.ts` | `extractAdInput()` — texto livre → dados estruturados (título, preços, cupom, loja). Retorna null se incerto |
+| `src/shared/standardizer.ts` | `standardizeForward()` — extrai + renderiza no template padrão, **com fallback garantido** para o texto processado |
+
 **Placeholders suportados:** `{titulo}` `{preco}` `{preco_original}` `{desconto}`
 `{cupom}` `{loja}` `{link}` — linhas cujo placeholder ficar vazio são removidas.
+
+### Curadoria de cupons (`src/curation/`)
+Cupons detectados pelo forwarder (sem item fixo) NÃO são enviados automaticamente:
+| Arquivo | Responsabilidade |
+|---|---|
+| `src/curation/publisher.ts` | `approveCurationItem()` envia item aprovado aos grupos destino; `rejectCurationItem()` |
+
+Fluxo: forwarder detecta cupom (`isCouponAnnouncement`) → troca links por afiliados →
+salva em `curation_items` (SQLite) com mídia em `data/media/` → aba **Curadoria** do
+portal permite EDITAR o texto, aprovar (envia) ou rejeitar. Itens decididos são
+limpos após 7 dias no boot (`cleanOldCurationItems`).
 
 ### Saúde / Dashboard
 | Arquivo | Responsabilidade |
@@ -142,21 +162,37 @@ O Dashboard mostra a saúde de cada engine separada por status
 | `GET/POST/PUT/DELETE /api/creator/templates[/:id]` | creator | CRUD de templates custom |
 | `POST /api/creator/preview` | creator | Renderiza sem enviar |
 | `POST /api/creator/ads` | creator | Cria e publica anúncio nos grupos destino |
+| `GET /api/curation` | curadoria | Lista cupons pendentes + contagens |
+| `PATCH /api/curation/:id` | curadoria | Edita texto de item pendente |
+| `POST /api/curation/:id/approve` | curadoria | Envia aos grupos e marca aprovado |
+| `POST /api/curation/:id/reject` | curadoria | Rejeita (apaga mídia local) |
+| `GET /api/curation/:id/image` | curadoria | Serve a imagem local do item |
 | `/api/shopee/suggestions*` | forwarder | Aprovação de sugestões Shopee |
 | `GET/PATCH /api/source-groups*` | forwarder | Grupos fonte + taxa de repasse |
 
 ### Fluxos principais
 
-**Repasse em tempo real (Forwarder):**
+**Repasse em tempo real (Forwarder) — PRODUTOS:**
 `client.ts on('message')` → `handleSourceMessage()` → bot ativo? → grupo fonte? →
 tem URL/preço? → dedup texto (6h) → dedup URL produto (12h) → taxa do grupo →
-cap diário → horário de silêncio → filtro loja/tipo → `canSendNow()`
-(se não: entra na fila) → `replaceAffiliateLinks()` → envia aos grupos destino → `markSent()`
+cap diário → horário de silêncio → filtro loja/tipo → **é cupom? → desvia p/ curadoria** →
+`canSendNow()` (se não: entra na fila) → `replaceAffiliateLinks()` →
+**`standardizeForward()` se "Padronizar repasses" ativo (fallback: texto processado)** →
+envia aos grupos destino → `markSent()`
+
+**Repasse de CUPONS (curadoria manual):** cupom detectado → `replaceAffiliateLinks()` →
+`saveCurationItem()` (com mídia local) → aba Curadoria do portal → usuário edita/aprova/rejeita →
+aprovado = `approveCurationItem()` envia aos grupos → `markSent(type='curation')`
 
 **Fila agendada (Forwarder):** cron 1/min → `flushQueue()` → `sendDealToGroups()`
+(produtos de grupos fonte também são padronizados aqui quando o toggle está ativo)
 
 **Criação de anúncio (Creator):** portal/API → `POST /api/creator/ads` →
 `validateAdInput()` → `renderTemplate()` → envia aos grupos destino → contadores de saúde
+
+**Template padrão:** o primeiro template de `data/templates.json` ("Padrão") é usado
+tanto pela padronização de repasses quanto como default do Creator. Editável via
+`PUT /api/creator/templates/:id`.
 
 ---
 
@@ -170,7 +206,7 @@ npm run test:watch # watch mode
 | Pasta | Cobre |
 |---|---|
 | `tests/forwarder/` | REGRESSÃO da engine validada: `formatter` (templates de deal/cupom) e `settings` (classificação cupom×produto — inclui o caso real THAUTEC com short links) |
-| `tests/creator/` | Engine creator: renderer (placeholders, desconto, remoção de linhas) e templateStore (CRUD, persistência) |
+| `tests/shared/` | Camada compartilhada: renderer (placeholders, desconto, remoção de linhas), templateStore (CRUD, persistência), adExtractor (extração de título/preços/cupom de mensagens reais) e standardizer (garantia de fallback) |
 
 Regras:
 - Teste novo acompanha feature nova.
