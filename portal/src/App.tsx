@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   fetchStats, fetchSettings, fetchActivity, patchSettings, setBotState, formatUptime, formatTime,
   fetchShopeeSuggestions, refreshShopeeSuggestions, approveShopeeSuggestion, rejectShopeeSuggestion,
-  fetchQueue, deleteQueueItem,
+  fetchQueue, deleteQueueItem, fetchEnginesHealth,
 } from './api';
-import type { Stats, Settings, Activity, ShopeeSuggestion, ShopeeSuggestionsResponse, QueueItem } from './api';
+import type { Stats, Settings, Activity, ShopeeSuggestion, ShopeeSuggestionsResponse, QueueItem, EngineHealth } from './api';
 import './App.css';
 
 type TabId = 'dashboard' | 'shopee' | 'queue';
@@ -46,14 +46,18 @@ export default function App() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [activity, setActivity] = useState<Activity[]>([]);
+  const [engines, setEngines] = useState<EngineHealth[]>([]);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [s, cfg, act] = await Promise.all([fetchStats(), fetchSettings(), fetchActivity()]);
+      const [s, cfg, act, eng] = await Promise.all([
+        fetchStats(), fetchSettings(), fetchActivity(), fetchEnginesHealth(),
+      ]);
       setStats(s);
       setSettings(cfg);
       setActivity(act);
+      setEngines(eng);
       setLastUpdate(new Date());
     } catch {}
   }, []);
@@ -146,6 +150,13 @@ export default function App() {
       {tab === 'queue' && <QueueTab />}
 
       <main className="main" style={{ display: tab === 'dashboard' ? undefined : 'none' }}>
+        {/* Saúde das Engines */}
+        {engines.length > 0 && (
+          <section className="engines-grid">
+            {engines.map(engine => <EngineCard key={engine.id} engine={engine} />)}
+          </section>
+        )}
+
         {/* Stats */}
         <section className="stats-grid">
           <StatCard
@@ -324,6 +335,65 @@ export default function App() {
           </div>
         </div>
       </main>
+    </div>
+  );
+}
+
+// ── Saúde das Engines ───────────────────────────────────────────────────────
+
+const ENGINE_STATUS_LABELS: Record<string, string> = {
+  ok: 'Operacional',
+  degraded: 'Degradada',
+  down: 'Fora do ar',
+};
+
+const ENGINE_ICONS: Record<string, string> = {
+  forwarder: '📡',
+  creator: '🛠️',
+};
+
+const ENGINE_DETAIL_LABELS: Record<string, string> = {
+  whatsappOnline: 'WhatsApp',
+  botEnabled: 'Bot ativo',
+  errosHoje: 'Erros hoje',
+  filaPendente: 'Fila',
+  ultimoEnvio: 'Último envio',
+  templates: 'Templates',
+  anunciosHoje: 'Anúncios hoje',
+  ultimoAnuncio: 'Último anúncio',
+  ultimoErro: 'Último erro',
+};
+
+function formatEngineDetail(key: string, value: string | number | boolean | null): string {
+  if (value === null) return '—';
+  if (typeof value === 'boolean') return value ? '✓' : '✗';
+  if ((key === 'ultimoEnvio' || key === 'ultimoAnuncio') && typeof value === 'number') {
+    return formatTime(value);
+  }
+  return String(value);
+}
+
+function EngineCard({ engine }: { engine: EngineHealth }) {
+  return (
+    <div className={`engine-card engine-${engine.status}`}>
+      <div className="engine-header">
+        <span className="engine-icon">{ENGINE_ICONS[engine.id] ?? '⚙️'}</span>
+        <span className="engine-name">{engine.name}</span>
+        <span className={`engine-status-badge engine-badge-${engine.status}`}>
+          <span className="status-dot" />
+          {ENGINE_STATUS_LABELS[engine.status] ?? engine.status}
+        </span>
+      </div>
+      <div className="engine-details">
+        {Object.entries(engine.details).map(([key, value]) => (
+          <div key={key} className="engine-detail">
+            <span className="engine-detail-label">{ENGINE_DETAIL_LABELS[key] ?? key}</span>
+            <span className="engine-detail-value" title={String(value ?? '')}>
+              {formatEngineDetail(key, value)}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

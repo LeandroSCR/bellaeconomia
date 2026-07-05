@@ -18,10 +18,10 @@ export function markSentNow(): void {
 
 const queue: Deal[] = [];
 
-export function enqueue(deals: Deal[]): void {
+export async function enqueue(deals: Deal[]): Promise<void> {
   let added = 0;
   for (const deal of deals) {
-    const isNew = saveDeal(deal);
+    const isNew = await saveDeal(deal);
     if (isNew && !queue.find(d => d.id === deal.id)) {
       queue.push(deal);
       added++;
@@ -38,7 +38,7 @@ export async function flushQueue(): Promise<void> {
 
   if (queue.length === 0) {
     // Só carrega deals de lojas habilitadas no portal
-    const dbDeals = getUnsentDeals(10).filter(d => isStoreEnabled(d.source));
+    const dbDeals = (await getUnsentDeals(10)).filter(d => isStoreEnabled(d.source));
     queue.push(...dbDeals);
   }
 

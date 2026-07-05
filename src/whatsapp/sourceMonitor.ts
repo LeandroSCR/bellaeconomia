@@ -14,15 +14,15 @@ import path from 'path';
 
 const MEDIA_DIR = path.join(process.cwd(), 'data', 'media');
 
-function saveMediaToDisk(dealId: string, media: { data: string; mimetype: string }): string {
+async function saveMediaToDisk(dealId: string, media: { data: string; mimetype: string }): Promise<string> {
   const extMap: Record<string, string> = {
     'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif',
     'image/webp': 'webp', 'video/mp4': 'mp4',
   };
   const ext = extMap[media.mimetype] ?? 'bin';
-  fs.mkdirSync(MEDIA_DIR, { recursive: true });
+  await fs.promises.mkdir(MEDIA_DIR, { recursive: true });
   const filePath = path.join(MEDIA_DIR, `${dealId}.${ext}`);
-  fs.writeFileSync(filePath, Buffer.from(media.data, 'base64'));
+  await fs.promises.writeFile(filePath, Buffer.from(media.data, 'base64'));
   return `local:${filePath}`;
 }
 
@@ -122,7 +122,7 @@ export async function handleSourceMessage(msg: Message): Promise<void> {
   const group = chat.name;
 
   // Dedup por texto exato — janela de 6h (evita reenvio pós-restart sem bloquear promoções do dia seguinte)
-  if (wasRecentlySent(dealId, 6)) {
+  if (await wasRecentlySent(dealId, 6)) {
     console.log(`[SOURCE] mensagem ja enviada recentemente, pulando`);
     recordActivity({ type: 'discarded', message: `Duplicata: ${title}`, source, group });
     return;
@@ -132,15 +132,26 @@ export async function handleSourceMessage(msg: Message): Promise<void> {
   // Short links e páginas genéricas são ignorados (não geram falsos positivos)
   const productUrls = urls.filter(shouldDeduplicateByUrl);
   const urlIds = productUrls.map(urlDealId);
-  const urlDuplicada = urlIds.find(uid => wasRecentlySent(uid, 12));
+  let urlDuplicada: string | undefined;
+  for (const uid of urlIds) {
+    if (await wasRecentlySent(uid, 12)) { urlDuplicada = uid; break; }
+  }
   if (urlDuplicada) {
     console.log(`[SOURCE] produto ja enviado hoje por outro grupo fonte, pulando`);
     recordActivity({ type: 'discarded', message: `URL duplicada: ${title}`, source, group });
     return;
   }
 
+  // Taxa de envio por grupo (0–100%)
+  const { groupRates } = getSettings();
+  const rate = groupRates[groupId] ?? 100;
+  if (rate === 0 || (rate < 100 && Math.random() * 100 >= rate)) {
+    recordActivity({ type: 'filtered', message: `Taxa ${rate}%: ${title}`, source, group });
+    return;
+  }
+
   // Verifica cap diário
-  const sentToday = countSentToday();
+  const sentToday = await countSentToday();
   const hardCap = isSpecialDay() ? config.SPECIAL_DAY_MSG_CAP : config.DAILY_MSG_CAP;
   const cap = Math.min(hardCap, getSettings().maxDailyAds);
   if (sentToday >= cap) {
@@ -177,10 +188,10 @@ export async function handleSourceMessage(msg: Message): Promise<void> {
     if (msg.hasMedia) {
       try {
         const mediaObj = await msg.downloadMedia();
-        if (mediaObj) imageUrl = saveMediaToDisk(dealId, mediaObj);
+        if (mediaObj) imageUrl = await saveMediaToDisk(dealId, mediaObj);
       } catch { /* segue sem imagem */ }
     }
-    enqueue([{
+    await enqueue([{
       id: dealId,
       title,
       price: 0,
@@ -229,7 +240,7 @@ export async function handleSourceMessage(msg: Message): Promise<void> {
         await destChat.sendMessage(textToSend);
       }
 
-      markSent(dealId, destGroupId, 'source_forward');
+      await markSent(dealId, destGroupId, 'source_forward');
       markSentNow();
       recordActivity({ type: 'sent', message: title, source, group });
       console.log(`[SOURCE] repassado para ${destGroupId}`);
@@ -243,7 +254,7 @@ export async function handleSourceMessage(msg: Message): Promise<void> {
 
   // Registra URLs do produto para bloquear duplicatas de outros grupos fonte no dia
   for (const uid of urlIds) {
-    markSent(uid, 'url-dedup', 'url_dedup');
+    await markSent(uid, 'url-dedup', 'url_dedup');
   }
 }
 

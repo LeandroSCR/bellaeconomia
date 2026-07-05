@@ -8,8 +8,9 @@ export interface PortalSettings {
   types: { product: boolean; coupon: boolean };
   maxDailyAds: number;
   delayMinutes: number;
-  quietHourStart: number; // hora em que começa o silêncio (0–23)
-  quietHourEnd: number;   // hora em que o bot retoma (0–23)
+  quietHourStart: number;
+  quietHourEnd: number;
+  groupRates: Record<string, number>; // group ID → 0–100 (% de mensagens encaminhadas)
 }
 
 const DEFAULTS: PortalSettings = {
@@ -25,6 +26,7 @@ const DEFAULTS: PortalSettings = {
   delayMinutes: 1,
   quietHourStart: 22,
   quietHourEnd: 8,
+  groupRates: {},
 };
 
 let cache: PortalSettings | null = null;
@@ -41,6 +43,7 @@ export function getSettings(): PortalSettings {
         delayMinutes: typeof raw.delayMinutes === 'number' ? raw.delayMinutes : DEFAULTS.delayMinutes,
         quietHourStart: typeof raw.quietHourStart === 'number' ? raw.quietHourStart : DEFAULTS.quietHourStart,
         quietHourEnd: typeof raw.quietHourEnd === 'number' ? raw.quietHourEnd : DEFAULTS.quietHourEnd,
+        groupRates: typeof raw.groupRates === 'object' ? raw.groupRates : {},
       };
     } else {
       cache = structuredClone(DEFAULTS);
@@ -62,18 +65,16 @@ export function updateSettings(partial: Partial<PortalSettings>): PortalSettings
     delayMinutes: typeof partial.delayMinutes === 'number' ? Math.max(0, Math.min(120, partial.delayMinutes)) : current.delayMinutes,
     quietHourStart: typeof partial.quietHourStart === 'number' ? clampHour(partial.quietHourStart) : current.quietHourStart,
     quietHourEnd: typeof partial.quietHourEnd === 'number' ? clampHour(partial.quietHourEnd) : current.quietHourEnd,
+    groupRates: { ...current.groupRates, ...(partial.groupRates ?? {}) },
   };
   persistSettings(cache);
   return cache;
 }
 
 function persistSettings(s: PortalSettings): void {
-  try {
-    fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(s, null, 2));
-  } catch (err) {
-    console.error('[SETTINGS] Erro ao salvar:', (err as Error).message);
-  }
+  fs.promises.mkdir(path.dirname(SETTINGS_FILE), { recursive: true })
+    .then(() => fs.promises.writeFile(SETTINGS_FILE, JSON.stringify(s, null, 2)))
+    .catch(err => console.error('[SETTINGS] Erro ao salvar:', (err as Error).message));
 }
 
 // Retorna se a loja está habilitada pelo usuário
@@ -98,8 +99,11 @@ export function isStoreEnabled(source: string): boolean {
 // qualquer produto etc.), ainda é cupom.
 export function isCouponAnnouncement(text: string): boolean {
   // ── 1. Palavras-chave que indicam presença de cupom ───────────────────────
+  // Exige padrão específico — evita falsos positivos como "Resgate cupom do anúncio"
+  // (Amazon Clippable Coupon) que menciona cupom mas é anúncio de produto.
   const hasCouponKeyword =
-    /\bcupom\b/i.test(text) ||
+    /\bcupons?\s*[:：]/i.test(text) ||                  // "cupom:" / "cupons:"
+    /\bcupom\s+[A-Z0-9]{3,}/i.test(text) ||            // "cupom CODE123"
     /\bvoucher\b/i.test(text) ||
     /\bpromo\s*code\b/i.test(text) ||
     /código\s*(promo\w*|desconto|de\s+desconto)?\s*[:：]/i.test(text) ||
@@ -130,14 +134,21 @@ export function isCouponAnnouncement(text: string): boolean {
   if (isStoreWide) return true;
 
   // ── 3. URL de produto específico → anúncio de produto (cupom é extra) ──────
-  // Detecta IDs de produto conhecidos nas URLs
+  // Detecta IDs de produto conhecidos nas URLs ou short links de produto
   const hasSpecificProductUrl =
-    /\/dp\/[A-Z0-9]{10}/i.test(text) ||       // Amazon: /dp/B0XXXXXX
+    /\/dp\/[A-Z0-9]{10}/i.test(text) ||         // Amazon: /dp/B0XXXXXX
     /\/gp\/product\/[A-Z0-9]{10}/i.test(text) || // Amazon: /gp/product/
-    /-i\.\d+\.\d+/.test(text) ||               // Shopee: produto-i.shopId.itemId
-    /\/product\/\d+\/\d+/.test(text) ||        // Shopee: /product/shopId/itemId
-    /MLB-?\d{6,}/.test(text) ||                // Mercado Livre: MLB123456
-    /\/p\/[A-Z]{3}\d+/.test(text);             // ML catálogo: /p/MLB123
+    /-i\.\d+\.\d+/.test(text) ||                 // Shopee: produto-i.shopId.itemId
+    /\/product\/\d+\/\d+/.test(text) ||           // Shopee: /product/shopId/itemId
+    /MLB-?\d{6,}/.test(text) ||                   // Mercado Livre: MLB123456
+    /\/p\/[A-Z]{3}\d+/.test(text) ||              // ML catálogo: /p/MLB123
+    // Short links de afiliado sempre apontam para produto específico
+    /\bamzn\.to\//i.test(text) ||
+    /\blink\.amazon\//i.test(text) ||
+    /\bs\.shopee\.com\.br\//i.test(text) ||
+    /\bshope\.ee\//i.test(text) ||
+    /\bmeli\.la\//i.test(text) ||
+    /\bmercadol\.com\.br\//i.test(text);
 
   if (hasSpecificProductUrl) return false;
 

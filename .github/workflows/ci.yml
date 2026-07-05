@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    name: Build + Testes (bot)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Compilar TypeScript (engine forwarder + creator)
+        run: npm run build:bot
+
+      - name: Testes unitários (regressão das duas engines)
+        run: npm test
+
+  build-portal:
+    name: Build portal (dashboard)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: portal/package-lock.json
+
+      - name: Instalar dependências do portal
+        working-directory: portal
+        run: npm ci
+
+      - name: Build do portal
+        working-directory: portal
+        run: npm run build

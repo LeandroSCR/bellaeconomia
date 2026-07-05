@@ -1,0 +1,206 @@
+# BellaEconomia — Bot de WhatsApp para promoções com afiliados
+
+Bot que monitora grupos fonte de WhatsApp, repassa promoções com links de afiliado
+substituídos, e cria anúncios do zero a partir de templates custom. Portal web de
+controle em `http://localhost:3000`.
+
+---
+
+## ⚠️ REGRAS CRÍTICAS — ler antes de qualquer alteração
+
+### 1. Arquitetura de duas engines (estilo micro-services)
+
+O bot tem **duas engines isoladas** que nunca devem se acoplar:
+
+| Engine | O que faz | Onde vive | Status |
+|---|---|---|---|
+| **Forwarder** (repasse) | Lê grupos fonte e repassa promoções com link de afiliado trocado | `src/whatsapp/`, `src/scheduler/`, `src/deals/` | ✅ **VALIDADA — ZONA CONGELADA** |
+| **Creator** (criação) | Cria anúncios do zero com templates custom | `src/engines/creator/` | Em evolução |
+
+**Zona congelada (Forwarder):** os arquivos abaixo estão validados em produção.
+Só altere se o usuário pedir explicitamente uma mudança NESSA engine:
+
+- `src/whatsapp/sourceMonitor.ts` — fluxo de repasse em tempo real
+- `src/whatsapp/sender.ts` — envio de deals da fila
+- `src/whatsapp/forwarder.ts` — substituição de links por afiliados
+- `src/whatsapp/formatter.ts` — formatação de deals de API
+- `src/scheduler/queue.ts`, `src/scheduler/cron.ts` — fila e agendamento
+
+**Regras de isolamento:**
+- A engine **Creator** (`src/engines/creator/`) NUNCA importa arquivos da zona congelada.
+  Ela só usa a infraestrutura compartilhada (ver abaixo).
+- A engine **Forwarder** NUNCA importa nada de `src/engines/`.
+- A única camada que conhece as duas é o composition root `src/index.ts` (rotas HTTP).
+
+**Infraestrutura compartilhada** (pode ser usada pelas duas engines, mudanças aqui
+exigem rodar TODOS os testes):
+- `src/whatsapp/client.ts` — cliente WhatsApp (getClient, isClientReady)
+- `src/database/index.ts` — SQLite async (markSent, wasRecentlySent, etc.)
+- `src/config.ts` — variáveis de ambiente (zod)
+- `src/metrics.ts` — atividade recente / erros
+- `src/settings.ts` — configurações do portal
+- `src/botState.ts` — liga/desliga persistente do bot
+
+### 2. Verificação cruzada obrigatória
+
+**Sempre que alterar uma engine, verifique que a outra não quebrou:**
+1. `npm run build:bot` — compila as duas (erro de tipo pega acoplamento)
+2. `npm test` — roda os testes de REGRESSÃO das duas engines
+3. Se mexeu em infraestrutura compartilhada, teste as duas manualmente
+
+### 3. Workflow para grandes alterações (OBRIGATÓRIO)
+
+Após qualquer alteração significativa (nova feature, refactor, mudança de fluxo):
+
+```
+1. npm test                        # testes unitários passando
+2. npm run build                   # bot + portal compilam
+3. Atualizar este CLAUDE.md        # se a arquitetura/fluxo mudou
+4. Atualizar o Dashboard           # toda feature nova DEVE aparecer no portal (ver regra 4)
+5. git add -A && git commit        # mensagem descritiva do que mudou
+6. git push origin main            # dispara a pipeline CI do GitHub
+7. npx tsc && pm2 restart bellaeconomia && pm2 save   # aplicar em produção
+```
+
+A pipeline (`.github/workflows/ci.yml`) roda build + testes a cada push/PR na main.
+**Nunca dê push com testes falhando.**
+
+### 4. Regra do Dashboard
+
+**Toda adição de funcionalidade deve se refletir no Dashboard do portal** (`portal/src/`):
+- Nova engine ou serviço → card de saúde em `getEnginesHealth()` (`src/engines/health.ts`)
+  + endpoint `/api/engines/health` + `EngineCard` no `App.tsx`
+- Nova métrica → adicionar em `/api/stats` ou nos `details` da engine correspondente
+- Nova ação → botão/aba no portal
+
+O Dashboard mostra a saúde de cada engine separada por status
+(`ok` = operacional, `degraded` = degradada, `down` = fora do ar).
+
+### 5. Segurança
+
+- **NUNCA** compartilhe o conteúdo do `.env` nem o suba para o GitHub (já está no
+  `.gitignore`). As credenciais ficam apenas no PC do usuário.
+- `data/`, `dist/`, `.wwebjs_auth/` também não vão para o git.
+
+---
+
+## Mapa de arquivos (referência para saber onde alterar)
+
+### Engine Forwarder (repasse) — ZONA CONGELADA
+| Arquivo | Responsabilidade |
+|---|---|
+| `src/whatsapp/client.ts` | Conexão WhatsApp (whatsapp-web.js + LocalAuth), QR code, comandos `!ping` `!status` `!id` `!grupos`, listeners de mensagem |
+| `src/whatsapp/sourceMonitor.ts` | `handleSourceMessage()` — fluxo completo de repasse: filtros → dedup → taxa por grupo → cap → silêncio → substituição de link → envio |
+| `src/whatsapp/forwarder.ts` | `replaceAffiliateLinks()` — troca links por afiliados (Amazon tag, Shopee, ML headless) |
+| `src/whatsapp/sender.ts` | `sendDealToGroups()` — envia deals estruturados da fila (APIs) |
+| `src/whatsapp/formatter.ts` | `formatDeal()` / `formatCoupon()` — formatação de deals de API |
+| `src/scheduler/cron.ts` | `startScheduler()` — fetch de APIs a cada N min, flush da fila a cada 1 min, sugestões Shopee às 8h |
+| `src/scheduler/queue.ts` | Fila em memória + `canSendNow()` (delay entre envios) |
+| `src/deals/providers/*.ts` | Fetchers: pelando, promobit, amazon, mercadolivre, shopee |
+| `src/deals/providers/mercadolivre-headless.ts` | Chrome headless p/ gerar link afiliado ML (sessão em `data/ml-session.json`; relogin: `npx tsx src/ml-login-manual.ts`) |
+
+### Engine Creator (criação de anúncios)
+| Arquivo | Responsabilidade |
+|---|---|
+| `src/engines/creator/types.ts` | `AdTemplate`, `AdInput`, `CreatorHealth` |
+| `src/engines/creator/renderer.ts` | `renderTemplate()` — substitui placeholders, remove linhas com placeholder vazio (funções puras) |
+| `src/engines/creator/templateStore.ts` | CRUD de templates em `data/templates.json` (template "Padrão" criado automaticamente; nunca remove o último) |
+| `src/engines/creator/publisher.ts` | `publishAd()` — renderiza + envia aos grupos destino; `previewAd()`; contadores de saúde |
+| `src/engines/creator/index.ts` | API pública da engine (só importe daqui) |
+
+**Placeholders suportados:** `{titulo}` `{preco}` `{preco_original}` `{desconto}`
+`{cupom}` `{loja}` `{link}` — linhas cujo placeholder ficar vazio são removidas.
+
+### Saúde / Dashboard
+| Arquivo | Responsabilidade |
+|---|---|
+| `src/engines/health.ts` | `getEnginesHealth()` — agrega status das duas engines (read-only, não modifica nenhuma) |
+| `portal/src/App.tsx` | Dashboard React: abas dashboard/shopee/fila, `EngineCard` de saúde |
+| `portal/src/api.ts` | Cliente HTTP do portal (tipos + fetches) |
+| `portal/src/App.css` | Estilos (dark theme, CSS vars em `index.css`) |
+
+### Infra compartilhada
+| Arquivo | Responsabilidade |
+|---|---|
+| `src/index.ts` | Composition root: Express + todas as rotas API + inicialização (`main()`) |
+| `src/config.ts` | Env vars validadas com zod (grupos, caps, chaves de API) |
+| `src/database/index.ts` | better-sqlite3 com wrapper async (`setImmediate`) — todas as funções retornam Promise |
+| `src/settings.ts` | Configurações do portal (`data/portal-settings.json`) + `isCouponAnnouncement()` + `detectSourceFromText()` |
+| `src/botState.ts` | Liga/desliga persistente (`data/bot-state.json`) |
+| `src/metrics.ts` | Atividade recente em memória (últimas 100) |
+| `src/calendar/specialDates.ts` | Datas especiais (cap maior de envios) |
+
+### Rotas API (src/index.ts)
+| Rota | Engine | O que faz |
+|---|---|---|
+| `GET /api/stats` | — | Estatísticas gerais do dashboard |
+| `GET /api/engines/health` | ambas | Saúde por engine (dashboard) |
+| `GET/PATCH /api/settings` | forwarder | Configurações do portal |
+| `POST /api/bot/start` `/stop` | forwarder | Liga/pausa o repasse |
+| `GET /api/activity` | — | Atividade recente |
+| `GET /api/queue` · `DELETE /api/queue/:id` | forwarder | Fila de deals |
+| `GET/POST/PUT/DELETE /api/creator/templates[/:id]` | creator | CRUD de templates custom |
+| `POST /api/creator/preview` | creator | Renderiza sem enviar |
+| `POST /api/creator/ads` | creator | Cria e publica anúncio nos grupos destino |
+| `/api/shopee/suggestions*` | forwarder | Aprovação de sugestões Shopee |
+| `GET/PATCH /api/source-groups*` | forwarder | Grupos fonte + taxa de repasse |
+
+### Fluxos principais
+
+**Repasse em tempo real (Forwarder):**
+`client.ts on('message')` → `handleSourceMessage()` → bot ativo? → grupo fonte? →
+tem URL/preço? → dedup texto (6h) → dedup URL produto (12h) → taxa do grupo →
+cap diário → horário de silêncio → filtro loja/tipo → `canSendNow()`
+(se não: entra na fila) → `replaceAffiliateLinks()` → envia aos grupos destino → `markSent()`
+
+**Fila agendada (Forwarder):** cron 1/min → `flushQueue()` → `sendDealToGroups()`
+
+**Criação de anúncio (Creator):** portal/API → `POST /api/creator/ads` →
+`validateAdInput()` → `renderTemplate()` → envia aos grupos destino → contadores de saúde
+
+---
+
+## Testes
+
+```
+npm test           # roda tudo (vitest)
+npm run test:watch # watch mode
+```
+
+| Pasta | Cobre |
+|---|---|
+| `tests/forwarder/` | REGRESSÃO da engine validada: `formatter` (templates de deal/cupom) e `settings` (classificação cupom×produto — inclui o caso real THAUTEC com short links) |
+| `tests/creator/` | Engine creator: renderer (placeholders, desconto, remoção de linhas) e templateStore (CRUD, persistência) |
+
+Regras:
+- Teste novo acompanha feature nova.
+- Se um teste de `tests/forwarder/` quebrar, você quebrou a engine validada — **reverta ou corrija antes de qualquer push**.
+- Os testes usam apenas funções puras/arquivo temporário — não precisam de WhatsApp nem banco.
+
+## Comandos
+
+```
+npm run dev          # desenvolvimento (tsx watch)
+npm run build        # compila bot (tsc) + portal (vite)
+npm run build:bot    # só o bot
+npm test             # testes unitários
+pm2 restart bellaeconomia && pm2 save   # aplicar mudanças em produção
+pm2 logs bellaeconomia --lines 50 --nostream  # ver logs
+npx tsx src/ml-login-manual.ts          # renovar sessão ML (abre Chrome headful)
+```
+
+## Produção / Boot
+
+- Processo roda no **PM2** (`bellaeconomia`), logs em `C:\Users\leand\.pm2\logs\`.
+- Inicia com o PC via **Task Scheduler** (tarefa "BellaEconomia Bot") → `start-bot.bat`.
+  - O .bat usa `ping -n 21` como delay (NÃO usar `timeout` — falha em sessão não interativa)
+    e termina com `exit 0`.
+- Estado do bot (ligado/pausado) persiste em `data/bot-state.json` — sobrevive a restart.
+- Grupos fonte/destino configurados no `.env` (`SOURCE_GROUP_IDS`, `WHATSAPP_GROUP_IDS`).
+
+## Limitações conhecidas
+
+- THAUTEC posta links `meli.la` que resolvem para página de perfil (`/social/thautec`) —
+  impossível identificar produto único; são descartados corretamente.
+- Amazon PA-API em standby (requer 30 vendas qualificadas) — chaves ausentes no `.env` é intencional.
+- Sessão ML expira periodicamente (reCAPTCHA) — renovar com `npx tsx src/ml-login-manual.ts`.

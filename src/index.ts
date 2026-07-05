@@ -16,6 +16,10 @@ import { isSpecialDay } from './calendar/specialDates';
 import { isBotEnabled, setBotEnabled } from './botState';
 import { fetchShopeeSuggestionsJob } from './scheduler/cron';
 import { enqueue } from './scheduler/queue';
+import { getEnginesHealth } from './engines/health';
+import {
+  templateStore, publishAd, previewAd, validateAdInput, SUPPORTED_PLACEHOLDERS,
+} from './engines/creator';
 import type { Deal } from './deals/types';
 
 const app = express();
@@ -27,8 +31,12 @@ app.use(express.static(PORTAL_DIST));
 
 // ── API ────────────────────────────────────────────────────────────────────
 
-app.get('/api/stats', (_req, res) => {
-  const sentToday = countSentToday();
+app.get('/api/stats', async (_req, res) => {
+  const [sentToday, sentTotal, sentByType] = await Promise.all([
+    countSentToday(),
+    countSentTotal(),
+    countSentByType(),
+  ]);
   const settings = getSettings();
   const hardCap = isSpecialDay() ? config.SPECIAL_DAY_MSG_CAP : config.DAILY_MSG_CAP;
   const cap = Math.min(hardCap, settings.maxDailyAds);
@@ -39,12 +47,12 @@ app.get('/api/stats', (_req, res) => {
     botEnabled: isBotEnabled(),
     uptimeMs: metrics.uptimeMs,
     sentToday,
-    sentTotal: countSentTotal(),
+    sentTotal,
     errorsToday: metrics.errorsToday,
     queueSize: getQueueSize(),
     dailyLimit: cap,
     dailyLimitReached: sentToday >= cap,
-    sentByType: countSentByType(),
+    sentByType,
     sentBySource: metrics.sentBySource,
   });
 });
@@ -80,25 +88,26 @@ app.post('/api/bot/stop', (_req, res) => {
 
 // ── Shopee Suggestions ─────────────────────────────────────────────────────
 
-app.get('/api/shopee/suggestions', (_req, res) => {
-  res.json({
-    items: getShopeeSuggestions(),
-    counts: countShopeeSuggestionsByStatus(),
-  });
+app.get('/api/shopee/suggestions', async (_req, res) => {
+  const [items, counts] = await Promise.all([
+    getShopeeSuggestions(),
+    countShopeeSuggestionsByStatus(),
+  ]);
+  res.json({ items, counts });
 });
 
 app.post('/api/shopee/suggestions/refresh', async (_req, res) => {
   try {
     await fetchShopeeSuggestionsJob();
-    res.json({ counts: countShopeeSuggestionsByStatus() });
+    res.json({ counts: await countShopeeSuggestionsByStatus() });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
 });
 
-app.post('/api/shopee/suggestions/:id/approve', (req, res) => {
+app.post('/api/shopee/suggestions/:id/approve', async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const suggestion = updateShopeeSuggestionStatus(id, 'approved');
+  const suggestion = await updateShopeeSuggestionStatus(id, 'approved');
   if (!suggestion) { res.status(404).json({ error: 'Não encontrado' }); return; }
 
   const deal: Deal = {
@@ -114,28 +123,145 @@ app.post('/api/shopee/suggestions/:id/approve', (req, res) => {
     source: 'shopee',
     createdAt: new Date(),
   };
-  enqueue([deal]);
+  await enqueue([deal]);
 
   res.json({ ok: true });
 });
 
-app.post('/api/shopee/suggestions/:id/reject', (req, res) => {
+app.post('/api/shopee/suggestions/:id/reject', async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  updateShopeeSuggestionStatus(id, 'rejected');
+  await updateShopeeSuggestionStatus(id, 'rejected');
   res.json({ ok: true });
 });
 
 // ── Fila de deals ──────────────────────────────────────────────────────────
 
-app.get('/api/queue', (_req, res) => {
-  const items = getUnsentDeals(200);
+app.get('/api/queue', async (_req, res) => {
+  const items = await getUnsentDeals(200);
   res.json(items.map(d => ({ ...d, createdAt: d.createdAt.getTime() })));
 });
 
-app.delete('/api/queue/:id', (req, res) => {
+app.delete('/api/queue/:id', async (req, res) => {
   const { id } = req.params;
   removeFromQueue(id);
-  markSent(id, 'system', 'cleared');
+  await markSent(id, 'system', 'cleared');
+  res.json({ ok: true });
+});
+
+// ── Saúde das engines (dashboard) ──────────────────────────────────────────
+
+app.get('/api/engines/health', async (_req, res) => {
+  try {
+    res.json({ engines: await getEnginesHealth() });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// ── Engine Creator: templates custom ───────────────────────────────────────
+
+app.get('/api/creator/templates', async (_req, res) => {
+  try {
+    res.json({ templates: await templateStore.list(), placeholders: SUPPORTED_PLACEHOLDERS });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+app.post('/api/creator/templates', async (req, res) => {
+  const { name, content } = req.body as { name?: string; content?: string };
+  if (!content?.trim()) { res.status(400).json({ error: 'content é obrigatório' }); return; }
+  try {
+    res.json(await templateStore.create(name ?? 'Sem nome', content));
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+app.put('/api/creator/templates/:id', async (req, res) => {
+  const { name, content } = req.body as { name?: string; content?: string };
+  try {
+    const updated = await templateStore.update(req.params.id, { name, content });
+    if (!updated) { res.status(404).json({ error: 'Template não encontrado' }); return; }
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+app.delete('/api/creator/templates/:id', async (req, res) => {
+  try {
+    const removed = await templateStore.remove(req.params.id);
+    if (!removed) {
+      res.status(400).json({ error: 'Template não encontrado ou é o único (não pode ser removido)' });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// ── Engine Creator: preview e publicação de anúncios ───────────────────────
+
+app.post('/api/creator/preview', async (req, res) => {
+  const { input, templateId } = req.body as { input: any; templateId?: string };
+  const errors = validateAdInput(input ?? {});
+  if (errors.length > 0) { res.status(400).json({ errors }); return; }
+  try {
+    res.json({ message: await previewAd(input, templateId) });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+app.post('/api/creator/ads', async (req, res) => {
+  const { input, templateId } = req.body as { input: any; templateId?: string };
+  try {
+    const result = await publishAd(input ?? {}, templateId);
+    res.status(result.ok ? 200 : 400).json(result);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// ── Grupos fonte ───────────────────────────────────────────────────────────
+
+app.get('/api/source-groups', async (_req, res) => {
+  const settings = getSettings();
+  const ids = config.SOURCE_GROUP_IDS;
+
+  const makeList = (nameMap: Map<string, string>) =>
+    ids.map(id => ({
+      id,
+      name: nameMap.get(id) ?? id,
+      rate: settings.groupRates[id] ?? 100,
+    }));
+
+  if (!isClientReady()) {
+    res.json(makeList(new Map()));
+    return;
+  }
+  try {
+    const chats = await getClient().getChats();
+    const nameMap = new Map<string, string>(
+      chats.filter((c: any) => c.isGroup).map((c: any) => [c.id._serialized, c.name])
+    );
+    res.json(makeList(nameMap));
+  } catch {
+    res.json(makeList(new Map()));
+  }
+});
+
+app.patch('/api/source-groups/:id/rate', (req, res) => {
+  const id = decodeURIComponent(req.params.id);
+  const { rate } = req.body as { rate: unknown };
+  if (typeof rate !== 'number' || rate < 0 || rate > 100) {
+    res.status(400).json({ error: 'Taxa inválida (0–100)' });
+    return;
+  }
+  const current = getSettings();
+  updateSettings({ groupRates: { ...current.groupRates, [id]: Math.round(rate) } });
   res.json({ ok: true });
 });
 
@@ -187,7 +313,7 @@ process.on('unhandledRejection', (reason) => {
 
 async function main() {
   console.log('BellaEconomia iniciando...');
-  cleanOldShopeeDeals();
+  await cleanOldShopeeDeals();
 
   app.listen(config.PORT, () => {
     console.log(`Bot + Portal rodando em http://localhost:${config.PORT}`);

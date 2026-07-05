@@ -21,7 +21,7 @@ export async function sendDealToGroups(deal: Deal): Promise<boolean> {
     return false;
   }
 
-  const today = countSentToday();
+  const today = await countSentToday();
   const hardCap = isSpecialDay() ? config.SPECIAL_DAY_MSG_CAP : config.DAILY_MSG_CAP;
   const cap = Math.min(hardCap, getSettings().maxDailyAds);
 
@@ -30,7 +30,7 @@ export async function sendDealToGroups(deal: Deal): Promise<boolean> {
     return false;
   }
 
-  if (wasRecentlySent(deal.id)) {
+  if (await wasRecentlySent(deal.id)) {
     recordActivity({ type: 'discarded', message: `Duplicata: ${deal.title.slice(0, 60)}`, source: deal.source });
     return false;
   }
@@ -56,6 +56,7 @@ export async function sendDealToGroups(deal: Deal): Promise<boolean> {
   }
 
   const client = getClient();
+
   // rawText: mensagens encaminhadas do WhatsApp ficam no campo rawText (texto original)
   // Para demais fontes de API, formata a deal estruturada
   const baseMessage = deal.rawText ?? formatDeal(deal);
@@ -87,7 +88,7 @@ export async function sendDealToGroups(deal: Deal): Promise<boolean> {
       } else {
         await chat.sendMessage(message);
       }
-      markSent(deal.id, groupId);
+      await markSent(deal.id, groupId);
       sent = true;
       recordActivity({ type: 'sent', message: deal.title.slice(0, 60), source: deal.source });
       console.log(`Enviado para ${groupId}: ${deal.title.slice(0, 60)}`);

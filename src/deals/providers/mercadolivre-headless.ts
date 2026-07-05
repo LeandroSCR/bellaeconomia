@@ -27,9 +27,9 @@ async function getBrowser(headless = true): Promise<Browser> {
 }
 
 async function loadSession(page: Page): Promise<boolean> {
-  if (!fs.existsSync(SESSION_FILE)) return false;
   try {
-    const cookies = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
+    const raw = await fs.promises.readFile(SESSION_FILE, 'utf-8');
+    const cookies = JSON.parse(raw);
     await page.setCookie(...cookies);
     return true;
   } catch { return false; }
@@ -37,8 +37,8 @@ async function loadSession(page: Page): Promise<boolean> {
 
 async function saveSession(page: Page): Promise<void> {
   try {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(SESSION_FILE, JSON.stringify(await page.cookies(), null, 2));
+    await fs.promises.mkdir(DATA_DIR, { recursive: true });
+    await fs.promises.writeFile(SESSION_FILE, JSON.stringify(await page.cookies(), null, 2));
   } catch {}
 }
 

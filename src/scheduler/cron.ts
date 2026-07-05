@@ -16,7 +16,7 @@ async function fetchAll(): Promise<void> {
     fetchAmazonDeals('oferta', 5),
     fetchMercadoLivreDeals(10),
   ]);
-  enqueue([...pelando, ...promobit, ...amazon, ...ml]);
+  await enqueue([...pelando, ...promobit, ...amazon, ...ml]);
 }
 
 async function fetchShopeeSuggestionsJob(): Promise<void> {
@@ -26,7 +26,7 @@ async function fetchShopeeSuggestionsJob(): Promise<void> {
     console.log('[SHOPEE] Nenhuma sugestão encontrada com comissão >= 10%');
     return;
   }
-  saveShopeeSuggestions(items);
+  await saveShopeeSuggestions(items);
   console.log(`[SHOPEE] ${items.length} sugestões salvas para aprovação no portal`);
 }
 

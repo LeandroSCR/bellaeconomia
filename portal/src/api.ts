@@ -123,6 +123,23 @@ export async function rejectShopeeSuggestion(id: number): Promise<void> {
   await fetch(`/api/shopee/suggestions/${id}/reject`, { method: 'POST' });
 }
 
+// ── Saúde das Engines ─────────────────────────────────────────────────────
+
+export type EngineStatus = 'ok' | 'degraded' | 'down';
+
+export interface EngineHealth {
+  id: 'forwarder' | 'creator';
+  name: string;
+  status: EngineStatus;
+  details: Record<string, string | number | boolean | null>;
+}
+
+export async function fetchEnginesHealth(): Promise<EngineHealth[]> {
+  const r = await fetch(`${BASE}/api/engines/health`);
+  const data = await r.json();
+  return data.engines ?? [];
+}
+
 export function formatUptime(ms: number): string {
   const s = Math.floor(ms / 1000);
   const m = Math.floor(s / 60);

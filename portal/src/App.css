@@ -324,3 +324,46 @@
   border: 1px solid rgba(248,81,73,.25);
 }
 .s-reject:hover { background: rgba(248,81,73,.2); }
+
+/* ── Saúde das Engines ─────────────────────────────────────────────────── */
+
+.engines-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+@media (max-width: 900px) { .engines-grid { grid-template-columns: 1fr; } }
+
+.engine-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.engine-card.engine-ok { border-left: 3px solid var(--green); }
+.engine-card.engine-degraded { border-left: 3px solid var(--yellow); }
+.engine-card.engine-down { border-left: 3px solid var(--red); }
+
+.engine-header { display: flex; align-items: center; gap: 10px; }
+.engine-icon { font-size: 20px; }
+.engine-name { font-size: 14px; font-weight: 700; flex: 1; }
+
+.engine-status-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 700;
+  padding: 3px 10px; border-radius: 20px;
+}
+.engine-badge-ok { background: rgba(63,185,80,.15); color: var(--green); border: 1px solid rgba(63,185,80,.3); }
+.engine-badge-ok .status-dot { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite; }
+.engine-badge-degraded { background: rgba(227,179,65,.12); color: var(--yellow); border: 1px solid rgba(227,179,65,.3); }
+.engine-badge-degraded .status-dot { background: var(--yellow); }
+.engine-badge-down { background: rgba(248,81,73,.12); color: var(--red); border: 1px solid rgba(248,81,73,.3); }
+.engine-badge-down .status-dot { background: var(--red); }
+
+.engine-details {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 8px 14px;
+}
+.engine-detail { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.engine-detail-label { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+.engine-detail-value {
+  font-size: 13px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
