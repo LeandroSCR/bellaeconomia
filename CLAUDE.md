@@ -229,8 +229,16 @@ npx tsx src/ml-login-manual.ts          # renovar sessão ML (abre Chrome headfu
 
 - Processo roda no **PM2** (`bellaeconomia`), logs em `C:\Users\leand\.pm2\logs\`.
 - Inicia com o PC via **Task Scheduler** (tarefa "BellaEconomia Bot") → `start-bot.bat`.
-  - O .bat usa `ping -n 21` como delay (NÃO usar `timeout` — falha em sessão não interativa)
-    e termina com `exit 0`.
+- **Armadilhas do Task Scheduler já diagnosticadas (NÃO regredir):**
+  - `timeout` falha em sessão não interativa → usar `ping -n 21 127.0.0.1` como delay.
+  - O contexto da tarefa **não enxerga `C:\Users\...\AppData\Roaming\npm`**
+    (node dá `MODULE_NOT_FOUND` num caminho que existe) → por isso o pm2 é
+    **devDependency local** do projeto e o .bat usa caminhos absolutos:
+    `"C:\Program Files\nodejs\node.exe" node_modules\pm2\bin\pm2 resurrect`.
+  - O .bat loga cada passo em `boot-log.txt` (sobrescrito a cada boot) — é o
+    primeiro lugar para olhar se o portal não subir com o PC.
+  - Se o resurrect não trouxer o processo, o .bat faz `pm2 start dist\index.js` de fallback.
+- Sempre rodar `pm2 save` após mudar o processo (o resurrect restaura do `dump.pm2`).
 - Estado do bot (ligado/pausado) persiste em `data/bot-state.json` — sobrevive a restart.
 - Grupos fonte/destino configurados no `.env` (`SOURCE_GROUP_IDS`, `WHATSAPP_GROUP_IDS`).
 

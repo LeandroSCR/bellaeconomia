@@ -31,6 +31,7 @@
     "@types/node": "^20.11.17",
     "@types/node-cron": "^3.0.11",
     "@types/qrcode-terminal": "^0.12.2",
+    "pm2": "^7.0.3",
     "tsx": "^4.7.1",
     "typescript": "^5.3.3",
     "vitest": "^4.1.9"
