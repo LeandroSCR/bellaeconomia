@@ -2,12 +2,13 @@ import { getClient, isClientReady } from './client';
 import { MessageMedia } from 'whatsapp-web.js';
 import { config } from '../config';
 import fs from 'fs';
-import { markSent, countSentToday, wasRecentlySent } from '../database';
+import { markSent, countSentToday, wasRecentlySent, saveCurationItem } from '../database';
 import { formatDeal } from './formatter';
 import { replaceAffiliateLinks } from './forwarder';
 import { isSpecialDay } from '../calendar/specialDates';
 import { isStoreEnabled, isTypeEnabled, getSettings } from '../settings';
 import { standardizeForward } from '../shared/standardizer';
+import { shouldCurateAsCoupon } from '../shared/couponGate';
 import { recordActivity } from '../metrics';
 import type { Deal } from '../deals/types';
 
@@ -59,6 +60,25 @@ export async function sendDealToGroups(deal: Deal): Promise<boolean> {
   }
 
   const client = getClient();
+
+  // Rede de segurança: deal de grupo fonte com cupom NUNCA sai automático —
+  // desvia para curadoria (pega backlog enfileirado antes da regra existir)
+  if (deal.rawText && deal.source === 'whatsapp' && shouldCurateAsCoupon(deal.rawText)) {
+    const processed = await replaceAffiliateLinks(deal.rawText);
+    if (processed !== null) {
+      await saveCurationItem({
+        id: deal.id,
+        originalText: deal.rawText,
+        processedText: processed,
+        source: deal.store,
+        imagePath: deal.imageUrl?.startsWith('local:') ? deal.imageUrl.slice(6) : undefined,
+      });
+      recordActivity({ type: 'filtered', message: `Cupom na curadoria (fila): ${deal.title.slice(0, 50)}`, source: deal.store });
+      console.log('[SENDER] deal com cupom desviada para curadoria');
+    }
+    await markSent(deal.id, 'curation', 'to_curation');
+    return false;
+  }
 
   // rawText: mensagens encaminhadas do WhatsApp ficam no campo rawText (texto original)
   // Para demais fontes de API, formata a deal estruturada

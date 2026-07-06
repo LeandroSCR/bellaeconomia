@@ -5,8 +5,9 @@ import { wasRecentlySent, markSent, countSentToday, saveCurationItem } from '../
 import { isSpecialDay } from '../calendar/specialDates';
 import { replaceAffiliateLinks } from './forwarder';
 import { canSendNow, markSentNow, enqueue } from '../scheduler/queue';
-import { isStoreEnabled, isTypeEnabled, isCouponAnnouncement, detectSourceFromText, getSettings } from '../settings';
+import { isStoreEnabled, isTypeEnabled, detectSourceFromText, getSettings } from '../settings';
 import { standardizeForward } from '../shared/standardizer';
+import { shouldCurateAsCoupon } from '../shared/couponGate';
 import { recordActivity } from '../metrics';
 import { isBotEnabled } from '../botState';
 import { createHash } from 'crypto';
@@ -176,17 +177,10 @@ export async function handleSourceMessage(msg: Message): Promise<void> {
     return;
   }
 
-  // Filtro de tipo (produto/cupom)
-  if (!isTypeEnabled(body)) {
-    const tipo = /cupom|🏷/i.test(body) ? 'cupom' : 'produto';
-    console.log(`[SOURCE] tipo "${tipo}" desativado no portal — pulando`);
-    recordActivity({ type: 'filtered', message: `Tipo "${tipo}" desativado`, source, group });
-    return;
-  }
-
-  // CUPONS não têm item fixo → vão para a fila de curadoria (aprovação manual
-  // no portal) com os links já trocados por afiliados. Nunca são enviados direto.
-  if (isCouponAnnouncement(body)) {
+  // CUPONS vão para a fila de curadoria ANTES de qualquer filtro de tipo —
+  // aprovação manual no portal, com os links já trocados por afiliados.
+  // Vale para anúncio de cupom E para produto com código de cupom explícito.
+  if (shouldCurateAsCoupon(body)) {
     const processed = await replaceAffiliateLinks(body);
     if (processed === null) {
       console.log('[SOURCE] cupom descartado: sem link afiliado');
@@ -212,6 +206,13 @@ export async function handleSourceMessage(msg: Message): Promise<void> {
       console.log(`[SOURCE] cupom detectado em "${group}" → fila de curadoria`);
       recordActivity({ type: 'filtered', message: `Cupom na curadoria: ${title}`, source, group });
     }
+    return;
+  }
+
+  // Filtro de tipo (só produtos chegam aqui — cupons já desviaram p/ curadoria)
+  if (!isTypeEnabled(body)) {
+    console.log(`[SOURCE] tipo "produto" desativado no portal — pulando`);
+    recordActivity({ type: 'filtered', message: `Tipo "produto" desativado`, source, group });
     return;
   }
 

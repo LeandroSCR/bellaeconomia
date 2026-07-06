@@ -127,10 +127,19 @@ Cupons detectados pelo forwarder (sem item fixo) NÃO são enviados automaticame
 |---|---|
 | `src/curation/publisher.ts` | `approveCurationItem()` envia item aprovado aos grupos destino; `rejectCurationItem()` |
 
-Fluxo: forwarder detecta cupom (`isCouponAnnouncement`) → troca links por afiliados →
-salva em `curation_items` (SQLite) com mídia em `data/media/` → aba **Curadoria** do
-portal permite EDITAR o texto, aprovar (envia) ou rejeitar. Itens decididos são
-limpos após 7 dias no boot (`cleanOldCurationItems`).
+Fluxo: forwarder detecta cupom (`shouldCurateAsCoupon` em `src/shared/couponGate.ts`:
+anúncio de cupom OU produto com código de cupom explícito) → troca links por
+afiliados → salva em `curation_items` (SQLite) com mídia em `data/media/` → aba
+**Curadoria** do portal permite EDITAR o texto, aprovar (envia) ou rejeitar.
+Itens decididos são limpos após 7 dias no boot (`cleanOldCurationItems`).
+
+**REGRAS DE ORDEM (aprendidas com bug real):**
+- O desvio para curadoria acontece ANTES do filtro de tipo no sourceMonitor —
+  se ficar depois, o toggle "Cupons" desligado DROPA os cupons e a curadoria
+  fica vazia para sempre.
+- O sender tem rede de segurança: deal de grupo fonte com cupom que estava na
+  fila também desvia para curadoria na hora do envio (`to_curation`, excluído
+  das contagens) — pega backlog antigo e classificações que escapem.
 
 ### Saúde / Dashboard
 | Arquivo | Responsabilidade |

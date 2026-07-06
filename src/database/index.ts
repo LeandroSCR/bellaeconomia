@@ -108,13 +108,13 @@ const stmts = {
   `),
   insertSent: db.prepare('INSERT INTO sent_messages (deal_id, group_id, type) VALUES (?, ?, ?)'),
   countSentToday: db.prepare(
-    "SELECT COUNT(*) as count FROM sent_messages WHERE sent_at >= ? AND type NOT IN ('url_dedup','cleared','no_affiliate')"
+    "SELECT COUNT(*) as count FROM sent_messages WHERE sent_at >= ? AND type NOT IN ('url_dedup','cleared','no_affiliate','to_curation')"
   ),
   countSentTotal: db.prepare(
-    "SELECT COUNT(*) as count FROM sent_messages WHERE type NOT IN ('url_dedup','cleared','no_affiliate')"
+    "SELECT COUNT(*) as count FROM sent_messages WHERE type NOT IN ('url_dedup','cleared','no_affiliate','to_curation')"
   ),
   countSentByType: db.prepare(
-    "SELECT type, COUNT(*) as count FROM sent_messages WHERE sent_at >= ? AND type NOT IN ('url_dedup','cleared','no_affiliate') GROUP BY type"
+    "SELECT type, COUNT(*) as count FROM sent_messages WHERE sent_at >= ? AND type NOT IN ('url_dedup','cleared','no_affiliate','to_curation') GROUP BY type"
   ),
   wasRecentlySent: db.prepare('SELECT id FROM sent_messages WHERE deal_id = ? AND sent_at >= ? LIMIT 1'),
   getUnsentDeals: db.prepare(`
