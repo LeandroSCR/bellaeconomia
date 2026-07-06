@@ -6,6 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   extractAdInput, extractTitle, extractPrices, extractCouponCode, parsePrice,
+  normalizeStylized, isCampaignHeader,
 } from '../../src/shared/adExtractor';
 
 describe('parsePrice', () => {
@@ -34,6 +35,35 @@ describe('extractTitle', () => {
 
   it('retorna undefined quando não há linha de título', () => {
     expect(extractTitle('R$ 10,00\nhttps://a.b')).toBeUndefined();
+  });
+
+  it('pula cabeçalho de campanha estilizado (caso real Coifa Suggar)', () => {
+    const text = '𝙊𝙛𝙚𝙧𝙩𝙖 𝙋𝙧𝙞𝙢𝙚 𝘿𝙖𝙮\n\nSuggar Coifa De Parede Coral 90Cm Inox Tp0692Ix \n\n🔥 R$906 em até 12x s/juros\n🏷️ Cupom: VIRAPRIME ou PRIMEIRO7DO7 - resgate no anúncio\n\n🛒Compre aqui\n220V: https://link.amazon/B08EFlJE5';
+    expect(extractTitle(text)).toBe('Suggar Coifa De Parede Coral 90Cm Inox Tp0692Ix');
+  });
+
+  it('pula cabeçalhos de campanha variados', () => {
+    expect(extractTitle('🔥ESQUENTA BLACK FRIDAY🔥\nNotebook Lenovo IdeaPad 15\nR$ 2.199')).toBe('Notebook Lenovo IdeaPad 15');
+    expect(extractTitle('OFERTA RELÂMPAGO!!!\nAir Fryer Mondial 4L\nhttps://a.b/x')).toBe('Air Fryer Mondial 4L');
+    expect(extractTitle('Achadinhos do dia 🛍️\nCadeira Gamer ThunderX3\nR$ 899')).toBe('Cadeira Gamer ThunderX3');
+  });
+});
+
+describe('normalizeStylized / isCampaignHeader', () => {
+  it('converte Mathematical Alphanumeric Symbols para ASCII', () => {
+    expect(normalizeStylized('𝙊𝙛𝙚𝙧𝙩𝙖 𝙋𝙧𝙞𝙢𝙚 𝘿𝙖𝙮')).toBe('Oferta Prime Day');
+  });
+
+  it('identifica cabeçalhos de campanha', () => {
+    expect(isCampaignHeader('𝙊𝙛𝙚𝙧𝙩𝙖 𝙋𝙧𝙞𝙢𝙚 𝘿𝙖𝙮')).toBe(true);
+    expect(isCampaignHeader('🔥 SUPER OFERTA IMPERDÍVEL 🔥')).toBe(true);
+    expect(isCampaignHeader('Black Friday Antecipada')).toBe(true);
+  });
+
+  it('NÃO marca título de produto como cabeçalho', () => {
+    expect(isCampaignHeader('Suggar Coifa De Parede Coral 90Cm Inox Tp0692Ix')).toBe(false);
+    expect(isCampaignHeader('Echo Dot 5ª geração Alexa')).toBe(false);
+    expect(isCampaignHeader('Super Nintendo Mini Clássico')).toBe(false);
   });
 });
 

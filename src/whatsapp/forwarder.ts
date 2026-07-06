@@ -3,13 +3,16 @@ import { config } from '../config';
 import { generateShopeeShortLink } from '../deals/providers/shopee';
 import { generateMLAffiliateLink, resolveMLSocialUrl } from '../deals/providers/mercadolivre-headless';
 import { findForeignStoreUrls } from '../shared/urlPolicy';
+import { normalizeStylized, isCampaignHeader } from '../shared/adExtractor';
 import { recordActivity } from '../metrics';
 
 const STOP_WORDS = new Set(['de', 'da', 'do', 'em', 'no', 'na', 'com', 'para', 'por', 'um', 'uma', 'os', 'as', 'e', 'ou', 'ao', 'dos', 'das', 'nos', 'nas', 'que']);
 
 function extractProductKeywords(text: string): string[] {
   // Pega a primeira linha não-vazia que parece ser o título do produto
-  const titleLine = text.split('\n').map(l => l.trim()).find(l => l.length > 5 && !/^[🔥🏷💰🛒💸🎁✅🔗📦👉]/.test(l) && !/^R\$/.test(l));
+  // (normaliza unicode estilizado e pula cabeçalhos de campanha tipo "Oferta Prime Day")
+  const titleLine = normalizeStylized(text).split('\n').map(l => l.trim())
+    .find(l => l.length > 5 && !/^[🔥🏷💰🛒💸🎁✅🔗📦👉]/.test(l) && !/^R\$/.test(l) && !isCampaignHeader(l));
   if (!titleLine) return [];
   const normalized = titleLine
     .normalize('NFD').replace(/[̀-ͯ]/g, '')

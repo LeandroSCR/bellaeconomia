@@ -12,6 +12,27 @@ import type { AdInput } from './templates/types';
 
 const URL_REGEX = /https?:\/\/[^\s]+/;
 
+/** Converte caracteres estilizados (𝙊𝙛𝙚𝙧𝙩𝙖, 𝗢𝗳𝗲𝗿𝘁𝗮, 𝟵𝟬𝟲...) para ASCII simples.
+ *  Grupos de promoção adoram Mathematical Alphanumeric Symbols — sem isso,
+ *  nenhuma comparação de texto funciona.
+ *  NFKC só nos blocos estilizados: global estragaria ª/º ("5ª geração" → "5a"). */
+export function normalizeStylized(text: string): string {
+  return text.replace(/[\u{1D400}-\u{1D7FF}\u{FF01}-\u{FF5E}]/gu, ch => ch.normalize('NFKC'));
+}
+
+// Palavras/frases de campanha que não identificam produto nenhum
+const CAMPAIGN_WORDS =
+  /(ofertas?|promo(?:ç|c)(?:ã|a)o|promo(?:ç|c)(?:õ|o)es|prime\s*day|black\s*friday|cyber\s*monday|esquenta|achadinhos?|achados?|imperd[ií]ve(?:l|is)|rel[âa]mpago|queima\s*de\s*estoque|mega|super|hiper|do\s*dia|da\s*semana|s[óo]\s*hoje|hoje\s*tem|corre[!\s]*|últimas?\s*unidades?|frete\s*gr[áa]tis|desconto|off|antecipad[ao]s?|exclusiv[ao]s?|especial|apro?veite[m]?)/gi;
+
+/** Linha que é SÓ cabeçalho de campanha ("Oferta Prime Day", "🔥ESQUENTA BLACK
+ *  FRIDAY🔥") — removendo as palavras de campanha não sobra conteúdo. */
+export function isCampaignHeader(line: string): boolean {
+  const meaningful = normalizeStylized(line)
+    .replace(CAMPAIGN_WORDS, '')
+    .replace(/[\p{Emoji}\p{P}\p{S}\s\d]/gu, '');
+  return meaningful.length < 4;
+}
+
 /** Converte "R$ 1.299,90" / "R$ 23,44" / "R$ 360" em número. */
 export function parsePrice(raw: string): number | undefined {
   const match = raw.match(/R\$\s*([\d.]+(?:,\d{1,2})?)/i);
@@ -21,14 +42,16 @@ export function parsePrice(raw: string): number | undefined {
   return Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
-/** Primeira linha "de conteúdo" — ignora URLs, preços puros e linhas de cupom. */
+/** Primeira linha "de conteúdo" — ignora URLs, preços puros, linhas de cupom
+ *  e cabeçalhos de campanha ("Oferta Prime Day" não é título de produto). */
 export function extractTitle(text: string): string | undefined {
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const lines = normalizeStylized(text).split('\n').map(l => l.trim()).filter(Boolean);
   const titleLine = lines.find(l =>
     !/^https?:\/\//i.test(l) &&
     !/(?:cupom|código|code|voucher)\s*[:：]/i.test(l) &&
     !/^(?:por\s*:?\s*)?R\$/i.test(l) &&
     !/^(?:de\s+)?R\$\s*[\d.,]+/i.test(l) &&
+    !isCampaignHeader(l) &&
     l.replace(/[\p{Emoji}\s*_~`]/gu, '').length > 3
   );
   if (!titleLine) return undefined;
@@ -114,20 +137,23 @@ export function extractAdInput(
   processedText: string,
   source: string
 ): AdInput | null {
-  const titulo = extractTitle(originalText);
+  // Normaliza caracteres estilizados uma vez — preços e cupons também se
+  // beneficiam (𝟵𝟬𝟲 → 906)
+  const normalized = normalizeStylized(originalText);
+  const titulo = extractTitle(normalized);
   const link = processedText.match(URL_REGEX)?.[0];
 
   // Sem título ou sem link → não dá para padronizar com segurança
   if (!titulo || !link) return null;
 
-  const { preco, precoOriginal } = extractPrices(originalText);
+  const { preco, precoOriginal } = extractPrices(normalized);
 
   return {
     titulo,
     link,
     preco,
     precoOriginal,
-    cupom: extractCouponCode(originalText),
+    cupom: extractCouponCode(normalized),
     loja: STORE_LABELS[source.toLowerCase()] ?? undefined,
   };
 }
