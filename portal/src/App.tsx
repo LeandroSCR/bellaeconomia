@@ -387,6 +387,9 @@ const ENGINE_ICONS: Record<string, string> = {
 const ENGINE_DETAIL_LABELS: Record<string, string> = {
   whatsappOnline: 'WhatsApp',
   botEnabled: 'Bot ativo',
+  enviadosHoje: 'Enviados hoje',
+  limiteAtingido: 'Limite atingido',
+  errosRecentes: 'Erros recentes',
   errosHoje: 'Erros hoje',
   filaPendente: 'Fila',
   ultimoEnvio: 'Último envio',

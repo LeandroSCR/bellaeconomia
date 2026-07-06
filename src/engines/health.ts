@@ -12,7 +12,15 @@ import { isClientReady } from '../whatsapp/client';
 import { getMetrics } from '../metrics';
 import { getQueueSize } from '../scheduler/queue';
 import { isBotEnabled } from '../botState';
+import { getSettings } from '../settings';
+import { countSentToday } from '../database';
+import { config } from '../config';
+import { isSpecialDay } from '../calendar/specialDates';
 import { getCreatorHealth } from './creator';
+
+// Erro só degrada a engine se aconteceu nos últimos 30 minutos —
+// um erro isolado de manhã não pode deixar o card "Degradada" o dia todo.
+const RECENT_ERROR_WINDOW_MS = 30 * 60_000;
 
 export type EngineStatus = 'ok' | 'degraded' | 'down';
 
@@ -29,9 +37,20 @@ export async function getEnginesHealth(): Promise<EngineHealth[]> {
   const whatsappOnline = isClientReady();
   const botEnabled = isBotEnabled();
 
+  // Limite diário: o portal manda; data especial só aumenta (mesma regra do sender)
+  const settings = getSettings();
+  const cap = isSpecialDay()
+    ? Math.max(settings.maxDailyAds, config.SPECIAL_DAY_MSG_CAP)
+    : settings.maxDailyAds;
+  const sentToday = await countSentToday();
+  const limitReached = sentToday >= cap;
+
+  const hasRecentError =
+    metrics.lastErrorAt !== null && Date.now() - metrics.lastErrorAt < RECENT_ERROR_WINDOW_MS;
+
   let forwarderStatus: EngineStatus = 'ok';
   if (!whatsappOnline) forwarderStatus = 'down';
-  else if (metrics.errorsToday > 0 || !botEnabled) forwarderStatus = 'degraded';
+  else if (!botEnabled || hasRecentError || limitReached) forwarderStatus = 'degraded';
 
   const lastSent = metrics.recentActivity.find(a => a.type === 'sent');
 
@@ -42,7 +61,9 @@ export async function getEnginesHealth(): Promise<EngineHealth[]> {
     details: {
       whatsappOnline,
       botEnabled,
-      errosHoje: metrics.errorsToday,
+      enviadosHoje: `${sentToday}/${cap}`,
+      limiteAtingido: limitReached,
+      errosRecentes: hasRecentError,
       filaPendente: getQueueSize(),
       ultimoEnvio: lastSent?.ts ?? null,
     },
