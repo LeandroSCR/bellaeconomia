@@ -41,8 +41,10 @@ app.get('/api/stats', async (_req, res) => {
     countSentByType(),
   ]);
   const settings = getSettings();
-  const hardCap = isSpecialDay() ? config.SPECIAL_DAY_MSG_CAP : config.DAILY_MSG_CAP;
-  const cap = Math.min(hardCap, settings.maxDailyAds);
+  // O portal manda no limite diário; data especial só pode AUMENTAR o teto
+  const cap = isSpecialDay()
+    ? Math.max(settings.maxDailyAds, config.SPECIAL_DAY_MSG_CAP)
+    : settings.maxDailyAds;
   const metrics = getMetrics();
 
   res.json({

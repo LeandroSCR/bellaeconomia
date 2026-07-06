@@ -23,8 +23,10 @@ export async function sendDealToGroups(deal: Deal): Promise<boolean> {
   }
 
   const today = await countSentToday();
-  const hardCap = isSpecialDay() ? config.SPECIAL_DAY_MSG_CAP : config.DAILY_MSG_CAP;
-  const cap = Math.min(hardCap, getSettings().maxDailyAds);
+  // O portal manda no limite diário; data especial só pode AUMENTAR o teto
+  const cap = isSpecialDay()
+    ? Math.max(getSettings().maxDailyAds, config.SPECIAL_DAY_MSG_CAP)
+    : getSettings().maxDailyAds;
 
   if (today >= cap) {
     console.log(`Cap diario atingido (${today}/${cap}), pulando`);

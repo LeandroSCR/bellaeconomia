@@ -150,6 +150,12 @@ limpos após 7 dias no boot (`cleanOldCurationItems`).
 | `src/metrics.ts` | Atividade recente em memória (últimas 100) |
 | `src/calendar/specialDates.ts` | Datas especiais (cap maior de envios) |
 
+**Limite diário de anúncios:** o valor do portal (`maxDailyAds`, máx. 1000) é a
+autoridade. `SPECIAL_DAY_MSG_CAP` do `.env` só pode AUMENTAR o teto em datas
+especiais, nunca diminuir. `DAILY_MSG_CAP` do `.env` não é mais usado no cálculo
+(mantido só como referência histórica). O cap é checado em 3 pontos: `/api/stats`,
+`sender.ts` e `sourceMonitor.ts` — mudanças devem manter os três consistentes.
+
 ### Rotas API (src/index.ts)
 | Rota | Engine | O que faz |
 |---|---|---|

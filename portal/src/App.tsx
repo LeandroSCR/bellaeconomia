@@ -268,7 +268,7 @@ export default function App() {
                   icon="📅"
                   value={settings?.maxDailyAds ?? 20}
                   min={1}
-                  max={200}
+                  max={1000}
                   onChange={v => updateNumber('maxDailyAds', v)}
                 />
                 <NumberSetting

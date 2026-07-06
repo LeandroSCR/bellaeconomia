@@ -151,10 +151,11 @@ export async function handleSourceMessage(msg: Message): Promise<void> {
     return;
   }
 
-  // Verifica cap diário
+  // Verifica cap diário — o portal manda; data especial só pode AUMENTAR o teto
   const sentToday = await countSentToday();
-  const hardCap = isSpecialDay() ? config.SPECIAL_DAY_MSG_CAP : config.DAILY_MSG_CAP;
-  const cap = Math.min(hardCap, getSettings().maxDailyAds);
+  const cap = isSpecialDay()
+    ? Math.max(getSettings().maxDailyAds, config.SPECIAL_DAY_MSG_CAP)
+    : getSettings().maxDailyAds;
   if (sentToday >= cap) {
     console.log(`[SOURCE] cap diario atingido (${sentToday}/${cap}), pulando`);
     recordActivity({ type: 'discarded', message: `Limite diário atingido (${sentToday}/${cap}): ${title}`, source, group });

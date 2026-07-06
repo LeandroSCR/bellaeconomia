@@ -64,7 +64,7 @@ export function updateSettings(partial: Partial<PortalSettings>): PortalSettings
   cache = {
     stores: { ...current.stores, ...(partial.stores ?? {}) },
     types: { ...current.types, ...(partial.types ?? {}) },
-    maxDailyAds: typeof partial.maxDailyAds === 'number' ? Math.max(1, Math.min(200, partial.maxDailyAds)) : current.maxDailyAds,
+    maxDailyAds: typeof partial.maxDailyAds === 'number' ? Math.max(1, Math.min(1000, partial.maxDailyAds)) : current.maxDailyAds,
     delayMinutes: typeof partial.delayMinutes === 'number' ? Math.max(0, Math.min(120, partial.delayMinutes)) : current.delayMinutes,
     quietHourStart: typeof partial.quietHourStart === 'number' ? clampHour(partial.quietHourStart) : current.quietHourStart,
     quietHourEnd: typeof partial.quietHourEnd === 'number' ? clampHour(partial.quietHourEnd) : current.quietHourEnd,
