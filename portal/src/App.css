@@ -417,3 +417,43 @@
 }
 .curation-save:hover { background: rgba(88,166,255,.2); }
 .curation-save:disabled, .s-approve:disabled, .s-reject:disabled { opacity: .5; cursor: default; }
+
+/* ── Modal QR WhatsApp ─────────────────────────────────────────────────── */
+
+.status-badge.clickable { cursor: pointer; }
+.status-badge.clickable:hover { filter: brightness(1.25); }
+
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0,0,0,.6);
+  display: flex; align-items: center; justify-content: center;
+}
+
+.modal-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px 24px;
+  width: min(420px, 92vw);
+  display: flex; flex-direction: column; gap: 16px;
+}
+
+.modal-header { display: flex; align-items: center; justify-content: space-between; }
+.modal-header h2 { font-size: 16px; font-weight: 700; }
+.modal-close {
+  background: none; border: none; color: var(--text-muted);
+  font-size: 16px; cursor: pointer; padding: 4px 8px;
+}
+.modal-close:hover { color: var(--text); }
+
+.qr-state { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+
+.qr-img {
+  width: 280px; height: 280px;
+  background: #fff; border-radius: 10px; padding: 8px;
+}
+
+.qr-steps { font-size: 13px; color: var(--text); padding-left: 20px; align-self: flex-start; line-height: 1.8; }
+.qr-hint { font-size: 12px; color: var(--text-muted); text-align: center; }
+.qr-success { font-size: 16px; font-weight: 700; color: var(--green); }
+.qr-waiting { font-size: 14px; color: var(--text-muted); }

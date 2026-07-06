@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
-import { initWhatsApp, getClient, isClientReady } from './whatsapp/client';
+import QRCode from 'qrcode';
+import { initWhatsApp, getClient, isClientReady, getLatestQr, reinitWhatsApp } from './whatsapp/client';
 import { startScheduler } from './scheduler/cron';
 import { getQueueSize, removeFromQueue } from './scheduler/queue';
 import {
@@ -89,6 +90,36 @@ app.post('/api/bot/stop', (_req, res) => {
   setBotEnabled(false);
   console.log('[BOT] Pausado via portal');
   res.json({ botEnabled: false });
+});
+
+// ── WhatsApp: QR code e reconexão pelo portal ─────────────────────────────
+
+app.get('/api/whatsapp/qr', async (_req, res) => {
+  if (isClientReady()) { res.json({ status: 'online', qr: null }); return; }
+  const qr = getLatestQr();
+  if (!qr) { res.json({ status: 'connecting', qr: null }); return; }
+  try {
+    const dataUrl = await QRCode.toDataURL(qr, { margin: 1, width: 300 });
+    res.json({ status: 'waiting_qr', qr: dataUrl });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+let reconnecting = false;
+app.post('/api/whatsapp/reconnect', async (_req, res) => {
+  if (reconnecting) { res.status(409).json({ error: 'Reconexão já em andamento' }); return; }
+  reconnecting = true;
+  console.log('[WHATSAPP] Reconexão forçada via portal');
+  // Responde já — a inicialização demora e o portal acompanha via /api/whatsapp/qr
+  res.json({ ok: true });
+  try {
+    await reinitWhatsApp();
+  } catch (err) {
+    console.error('[WHATSAPP] Erro na reconexão:', (err as Error).message);
+  } finally {
+    reconnecting = false;
+  }
 });
 
 // ── Shopee Suggestions ─────────────────────────────────────────────────────

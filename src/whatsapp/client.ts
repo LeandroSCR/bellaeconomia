@@ -5,6 +5,7 @@ import { config } from '../config';
 
 let client: Client | null = null;
 let isReady = false;
+let latestQr: string | null = null;
 
 export function getClient(): Client {
   if (!client) throw new Error('WhatsApp client nao inicializado');
@@ -13,6 +14,22 @@ export function getClient(): Client {
 
 export function isClientReady(): boolean {
   return isReady;
+}
+
+/** Último QR emitido pelo WhatsApp (null quando conectado ou ainda inicializando). */
+export function getLatestQr(): string | null {
+  return latestQr;
+}
+
+/** Destrói o cliente atual e inicializa do zero (força novo QR quando deslogado). */
+export async function reinitWhatsApp(): Promise<void> {
+  if (client) {
+    try { await client.destroy(); } catch {}
+    client = null;
+    isReady = false;
+    latestQr = null;
+  }
+  await initWhatsApp();
 }
 
 export async function initWhatsApp(): Promise<Client> {
@@ -35,12 +52,14 @@ export async function initWhatsApp(): Promise<Client> {
   });
 
   client.on('qr', (qr: string) => {
-    console.log('\nEscaneie o QR code abaixo com o WhatsApp:\n');
+    latestQr = qr; // disponível no portal via GET /api/whatsapp/qr
+    console.log('\nEscaneie o QR code abaixo com o WhatsApp (ou pelo portal):\n');
     qrcode.generate(qr, { small: true });
   });
 
   client.on('ready', async () => {
     isReady = true;
+    latestQr = null;
     console.log('\nWhatsApp conectado!');
 
     try {
@@ -87,7 +106,7 @@ export async function initWhatsApp(): Promise<Client> {
     }
   });
 
-  client.on('authenticated', () => console.log('WhatsApp autenticado'));
+  client.on('authenticated', () => { latestQr = null; console.log('WhatsApp autenticado'); });
   client.on('auth_failure', (msg: string) => console.error('Falha na autenticacao:', msg));
   client.on('disconnected', (reason: string) => {
     isReady = false;

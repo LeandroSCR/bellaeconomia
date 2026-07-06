@@ -173,6 +173,8 @@ especiais, nunca diminuir. `DAILY_MSG_CAP` do `.env` não é mais usado no cálc
 | `POST /api/curation/:id/approve` | curadoria | Envia aos grupos e marca aprovado |
 | `POST /api/curation/:id/reject` | curadoria | Rejeita (apaga mídia local) |
 | `GET /api/curation/:id/image` | curadoria | Serve a imagem local do item |
+| `GET /api/whatsapp/qr` | — | QR de login como data URL (`online`/`connecting`/`waiting_qr`) |
+| `POST /api/whatsapp/reconnect` | — | Destrói e reinicializa o cliente WhatsApp (força novo QR) |
 | `/api/shopee/suggestions*` | forwarder | Aprovação de sugestões Shopee |
 | `GET/PATCH /api/source-groups*` | forwarder | Grupos fonte + taxa de repasse |
 

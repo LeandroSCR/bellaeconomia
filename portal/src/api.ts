@@ -55,6 +55,22 @@ export async function setBotState(enabled: boolean): Promise<void> {
   await fetch(`/api/bot/${enabled ? 'start' : 'stop'}`, { method: 'POST' });
 }
 
+// ── WhatsApp QR / reconexão ───────────────────────────────────────────────
+
+export interface WhatsAppQr {
+  status: 'online' | 'connecting' | 'waiting_qr';
+  qr: string | null; // data URL da imagem do QR
+}
+
+export async function fetchWhatsAppQr(): Promise<WhatsAppQr> {
+  const r = await fetch(`${BASE}/api/whatsapp/qr`);
+  return r.json();
+}
+
+export async function reconnectWhatsApp(): Promise<void> {
+  await fetch(`${BASE}/api/whatsapp/reconnect`, { method: 'POST' });
+}
+
 export async function fetchActivity(): Promise<Activity[]> {
   const r = await fetch(`${BASE}/api/activity`);
   return r.json();

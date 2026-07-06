@@ -4,10 +4,11 @@ import {
   fetchShopeeSuggestions, refreshShopeeSuggestions, approveShopeeSuggestion, rejectShopeeSuggestion,
   fetchQueue, deleteQueueItem, fetchEnginesHealth,
   fetchCuration, updateCurationItemText, approveCuration, rejectCuration, curationImageUrl,
+  fetchWhatsAppQr, reconnectWhatsApp,
 } from './api';
 import type {
   Stats, Settings, Activity, ShopeeSuggestion, ShopeeSuggestionsResponse, QueueItem,
-  EngineHealth, CurationItem,
+  EngineHealth, CurationItem, WhatsAppQr,
 } from './api';
 import './App.css';
 
@@ -53,6 +54,7 @@ export default function App() {
   const [engines, setEngines] = useState<EngineHealth[]>([]);
   const [curationPending, setCurationPending] = useState(0);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [qrOpen, setQrOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -116,9 +118,13 @@ export default function App() {
       <header className="header">
         <div className="header-left">
           <span className="logo">🤖 BellaEconomia</span>
-          <span className={`status-badge ${isOnline ? 'online' : 'offline'}`}>
+          <span
+            className={`status-badge ${isOnline ? 'online' : 'offline clickable'}`}
+            onClick={() => { if (!isOnline) setQrOpen(true); }}
+            title={isOnline ? undefined : 'Clique para conectar via QR code'}
+          >
             <span className="status-dot" />
-            {isOnline ? 'WhatsApp Online' : 'WhatsApp Offline'}
+            {isOnline ? 'WhatsApp Online' : 'WhatsApp Offline — conectar'}
           </span>
         </div>
         <div className="header-right">
@@ -158,6 +164,8 @@ export default function App() {
       {tab === 'shopee' && <ShopeeTab />}
       {tab === 'queue' && <QueueTab />}
       {tab === 'curation' && <CurationTab onChanged={load} />}
+
+      {qrOpen && <QrModal onClose={() => { setQrOpen(false); load(); }} />}
 
       <main className="main" style={{ display: tab === 'dashboard' ? undefined : 'none' }}>
         {/* Saúde das Engines */}
@@ -367,6 +375,75 @@ export default function App() {
           </div>
         </div>
       </main>
+    </div>
+  );
+}
+
+// ── Modal de QR do WhatsApp ─────────────────────────────────────────────────
+
+function QrModal({ onClose }: { onClose: () => void }) {
+  const [data, setData] = useState<WhatsAppQr | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
+
+  const poll = useCallback(async () => {
+    try { setData(await fetchWhatsAppQr()); } catch {}
+  }, []);
+
+  useEffect(() => {
+    poll();
+    const interval = setInterval(poll, 4000);
+    return () => clearInterval(interval);
+  }, [poll]);
+
+  const handleReconnect = async () => {
+    setReconnecting(true);
+    try { await reconnectWhatsApp(); } catch {}
+    // A reinicialização demora — o polling pega o QR quando ele sair
+    setTimeout(() => setReconnecting(false), 8000);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-panel" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Conectar WhatsApp</h2>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+
+        {data?.status === 'online' && (
+          <div className="qr-state">
+            <div className="qr-success">✅ WhatsApp conectado!</div>
+            <button className="s-approve" onClick={onClose}>Fechar</button>
+          </div>
+        )}
+
+        {data?.status === 'waiting_qr' && data.qr && (
+          <div className="qr-state">
+            <img src={data.qr} alt="QR code do WhatsApp" className="qr-img" />
+            <ol className="qr-steps">
+              <li>Abra o WhatsApp no celular do bot</li>
+              <li>Toque em <b>⋮ &gt; Dispositivos conectados</b></li>
+              <li>Toque em <b>Conectar dispositivo</b> e escaneie</li>
+            </ol>
+            <p className="qr-hint">O QR se renova sozinho — mantenha esta janela aberta.</p>
+          </div>
+        )}
+
+        {data?.status === 'connecting' && (
+          <div className="qr-state">
+            <div className="qr-waiting">⏳ Inicializando o WhatsApp...</div>
+            <p className="qr-hint">
+              Se a sessão salva ainda for válida, conecta sozinho sem QR.
+              Se ficar preso aqui, force uma reconexão para gerar o QR.
+            </p>
+            <button className="curation-save" onClick={handleReconnect} disabled={reconnecting}>
+              {reconnecting ? '⏳ Reiniciando...' : '🔄 Forçar reconexão / novo QR'}
+            </button>
+          </div>
+        )}
+
+        {!data && <div className="qr-state"><div className="qr-waiting">Carregando...</div></div>}
+      </div>
     </div>
   );
 }
