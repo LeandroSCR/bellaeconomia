@@ -106,11 +106,12 @@ export function isStoreEnabled(source: string): boolean {
 // qualquer produto etc.), ainda é cupom.
 export function isCouponAnnouncement(text: string): boolean {
   // ── 0. Frase explícita de cupom de loja → cupom SEMPRE, antes de tudo ──────
-  // "Cupom ML", "Cupons do Mercado Livre", "Cupom da Shopee", "Cupom amazon"...
+  // "Cupom ML", "Cupons do Mercado Livre", "Cupom da Shopee", "Cupom amazon",
+  // "Cupom frete grátis", "Cupons de frete grátis"...
   // ATENÇÃO: singular é "cupoM" (M) e plural "cupoNS" (N) — usar cupo(?:m|ns),
   // nunca "cupons?" (que só casa o plural). Bug real corrigido em 06/07/2026.
   const isExplicitStoreCoupon =
-    /\bcupo(?:m|ns)\s+(?:d[oae]\s+)?(?:mercado\s*livre|shopee|amazon|ml)\b/i.test(text);
+    /\bcupo(?:m|ns)\s+(?:d[oae]\s+)?(?:mercado\s*livre|shopee|amazon|ml|frete\s*gr[áa]tis)\b/i.test(text);
 
   if (isExplicitStoreCoupon) return true;
 

@@ -18,6 +18,12 @@ describe('shouldCurateAsCoupon — vai para CURADORIA', () => {
     expect(shouldCurateAsCoupon('Cupom ML de 20% off — código MELI20')).toBe(true);
   });
 
+  it('cupom de frete grátis, mesmo com link de produto', () => {
+    expect(shouldCurateAsCoupon('Cupom frete grátis na Shopee! https://amzn.to/x')).toBe(true);
+    expect(shouldCurateAsCoupon('Cupons de frete grátis liberados 🔥')).toBe(true);
+    expect(shouldCurateAsCoupon('CUPOM FRETE GRATIS aproveitem')).toBe(true);
+  });
+
   it('cupom sem página de produto único (regra 1)', () => {
     expect(shouldCurateAsCoupon('Use o cupom TUDO10 — 10% off em toda a loja!')).toBe(true);
     expect(shouldCurateAsCoupon('Cupom: PRIMEIRA15 para primeira compra no app')).toBe(true);
