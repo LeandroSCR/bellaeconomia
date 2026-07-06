@@ -1,7 +1,20 @@
 import { Client, LocalAuth, Message } from 'whatsapp-web.js';
 import qrcode from 'qrcode-terminal';
+import { execSync } from 'child_process';
 import { handleSourceMessage } from './sourceMonitor';
 import { config } from '../config';
+
+// Mata Chromes órfãos que ficaram segurando o lock do perfil .wwebjs_auth
+// (acontece quando o PM2 reinicia e o Chrome filho não morre junto — sem isso
+// o bot entra em crash-loop com "The browser is already running").
+function killOrphanWhatsAppChrome(): void {
+  try {
+    execSync(
+      `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"Name='chrome.exe'\\" | Where-Object { $_.CommandLine -like '*wwebjs_auth*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"`,
+      { stdio: 'ignore', timeout: 15000 }
+    );
+  } catch { /* melhor tentar iniciar mesmo assim */ }
+}
 
 let client: Client | null = null;
 let isReady = false;
@@ -33,6 +46,7 @@ export async function reinitWhatsApp(): Promise<void> {
 }
 
 export async function initWhatsApp(): Promise<Client> {
+  killOrphanWhatsAppChrome();
   const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 
   client = new Client({
