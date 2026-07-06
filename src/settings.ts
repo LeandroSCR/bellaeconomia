@@ -105,11 +105,20 @@ export function isStoreEnabled(source: string): boolean {
 // Exceção: mesmo com URL de produto, se a linguagem for de desconto generalizado (toda a loja,
 // qualquer produto etc.), ainda é cupom.
 export function isCouponAnnouncement(text: string): boolean {
+  // ── 0. Frase explícita de cupom de loja → cupom SEMPRE, antes de tudo ──────
+  // "Cupom ML", "Cupons do Mercado Livre", "Cupom da Shopee", "Cupom amazon"...
+  // ATENÇÃO: singular é "cupoM" (M) e plural "cupoNS" (N) — usar cupo(?:m|ns),
+  // nunca "cupons?" (que só casa o plural). Bug real corrigido em 06/07/2026.
+  const isExplicitStoreCoupon =
+    /\bcupo(?:m|ns)\s+(?:d[oae]\s+)?(?:mercado\s*livre|shopee|amazon|ml)\b/i.test(text);
+
+  if (isExplicitStoreCoupon) return true;
+
   // ── 1. Palavras-chave que indicam presença de cupom ───────────────────────
   // Exige padrão específico — evita falsos positivos como "Resgate cupom do anúncio"
   // (Amazon Clippable Coupon) que menciona cupom mas é anúncio de produto.
   const hasCouponKeyword =
-    /\bcupons?\s*[:：]/i.test(text) ||                  // "cupom:" / "cupons:"
+    /\bcupo(?:m|ns)\s*[:：]/i.test(text) ||             // "cupom:" / "cupons:"
     /\bcupom\s+[A-Z0-9]{3,}/i.test(text) ||            // "cupom CODE123"
     /\bvoucher\b/i.test(text) ||
     /\bpromo\s*code\b/i.test(text) ||
@@ -122,12 +131,6 @@ export function isCouponAnnouncement(text: string): boolean {
     /🏷/.test(text);
 
   if (!hasCouponKeyword) return false;
-
-  // ── 1b. Título explícito de cupom de loja → cupom imediato ────────────────
-  const isExplicitStoreCoupon =
-    /cupons?\s+(do\s+|da\s+|de\s+)?(mercado\s*livre|shopee|amazon|ml)\b/i.test(text);
-
-  if (isExplicitStoreCoupon) return true;
 
   // ── 2. Linguagem de desconto generalizado → cupom mesmo com URL de produto ─
   const isStoreWide =

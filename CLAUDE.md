@@ -127,11 +127,20 @@ Cupons detectados pelo forwarder (sem item fixo) NÃO são enviados automaticame
 |---|---|
 | `src/curation/publisher.ts` | `approveCurationItem()` envia item aprovado aos grupos destino; `rejectCurationItem()` |
 
-Fluxo: forwarder detecta cupom (`shouldCurateAsCoupon` em `src/shared/couponGate.ts`:
-anúncio de cupom OU produto com código de cupom explícito) → troca links por
-afiliados → salva em `curation_items` (SQLite) com mídia em `data/media/` → aba
-**Curadoria** do portal permite EDITAR o texto, aprovar (envia) ou rejeitar.
-Itens decididos são limpos após 7 dias no boot (`cleanOldCurationItems`).
+**REGRA DE NEGÓCIO (usuário, 06/07/2026):** publicação é CUPOM (→ curadoria) APENAS quando:
+1. NÃO indica página de produto único (vários produtos / loja inteira), OU
+2. tem frase explícita "Cupom ML/mercado livre/Shopee/amazon" (singular/plural, com do/da/de).
+
+Produto específico com código de cupom no corpo ("Cupom: 7DO7" + link de produto)
+é PRODUTO → envio automático. Implementado em `shouldCurateAsCoupon`
+(`src/shared/couponGate.ts`) que delega para `isCouponAnnouncement` (settings.ts).
+⚠️ Regex de cupom: singular é "cupoM", plural "cupoNS" — usar `cupo(?:m|ns)`,
+NUNCA `cupons?` (só casa o plural; bug real que quebrou a detecção).
+
+Fluxo: forwarder detecta cupom → troca links por afiliados → salva em
+`curation_items` (SQLite) com mídia em `data/media/` → aba **Curadoria** do portal
+permite EDITAR o texto, aprovar (envia) ou rejeitar. Itens decididos são limpos
+após 7 dias no boot (`cleanOldCurationItems`).
 
 **REGRAS DE ORDEM (aprendidas com bug real):**
 - O desvio para curadoria acontece ANTES do filtro de tipo no sourceMonitor —
