@@ -116,6 +116,7 @@ Usada pelas DUAS engines — módulos puros ou de I/O local, sem tocar em WhatsA
 | `src/shared/templates/store.ts` | CRUD de templates em `data/templates.json` (template "Padrão" auto-criado; nunca remove o último) |
 | `src/shared/adExtractor.ts` | `extractAdInput()` — texto livre → dados estruturados (título, preços, cupom, loja). Retorna null se incerto |
 | `src/shared/standardizer.ts` | `standardizeForward()` — extrai + renderiza no template padrão, **com fallback garantido** para o texto processado |
+| `src/shared/urlPolicy.ts` | `classifyUrl()` — whitelist de lojas afiliadas (Shopee/Amazon/ML). Mensagem com link de loja estranha (Kabum, Magalu, bit.ly...) é descartada INTEIRA no forwarder; links de comunidade (whatsapp/telegram/instagram) são tolerados |
 
 **Placeholders suportados:** `{titulo}` `{preco}` `{preco_original}` `{desconto}`
 `{cupom}` `{loja}` `{link}` — linhas cujo placeholder ficar vazio são removidas.

@@ -2,6 +2,7 @@ import axios from 'axios';
 import { config } from '../config';
 import { generateShopeeShortLink } from '../deals/providers/shopee';
 import { generateMLAffiliateLink, resolveMLSocialUrl } from '../deals/providers/mercadolivre-headless';
+import { findForeignStoreUrls } from '../shared/urlPolicy';
 import { recordActivity } from '../metrics';
 
 const STOP_WORDS = new Set(['de', 'da', 'do', 'em', 'no', 'na', 'com', 'para', 'por', 'um', 'uma', 'os', 'as', 'e', 'ou', 'ao', 'dos', 'das', 'nos', 'nas', 'que']);
@@ -78,6 +79,15 @@ export async function replaceAffiliateLinks(text: string): Promise<string | null
   const hasAffiliate = urls.some(isAffiliateUrl);
   if (!hasAffiliate) {
     console.log('[FORWARDER] Nenhum link de afiliado encontrado — promoção descartada');
+    return null;
+  }
+
+  // Mensagem com link de loja NÃO afiliada (Kabum, Magalu, etc.) é descartada
+  // inteira — trocar só os nossos links deixaria a venda alheia passar junto.
+  const foreignUrls = findForeignStoreUrls(urls);
+  if (foreignUrls.length > 0) {
+    console.log(`[FORWARDER] Link de loja não afiliada (${foreignUrls[0].slice(0, 50)}) — promoção descartada`);
+    recordActivity({ type: 'filtered', message: `Loja não afiliada: ${foreignUrls[0].slice(0, 60)}` });
     return null;
   }
 

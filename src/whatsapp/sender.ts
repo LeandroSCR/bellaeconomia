@@ -64,9 +64,20 @@ export async function sendDealToGroups(deal: Deal): Promise<boolean> {
   // Para demais fontes de API, formata a deal estruturada
   const baseMessage = deal.rawText ?? formatDeal(deal);
   // Shopee já tem link afiliado — não reprocessar
-  let message = deal.source === 'shopee'
-    ? baseMessage
-    : (await replaceAffiliateLinks(baseMessage) ?? baseMessage);
+  let message: string;
+  if (deal.source === 'shopee') {
+    message = baseMessage;
+  } else {
+    // NUNCA envia com link cru: sem link afiliado válido, a deal é descartada
+    const processed = await replaceAffiliateLinks(baseMessage);
+    if (processed === null) {
+      console.log('[SENDER] sem link afiliado válido — deal descartada');
+      recordActivity({ type: 'discarded', message: `Sem link afiliado: ${deal.title.slice(0, 60)}`, source: deal.source });
+      await markSent(deal.id, 'discarded', 'no_affiliate');
+      return false;
+    }
+    message = processed;
+  }
 
   // Produtos vindos de grupos fonte: padroniza com o template padrão do canal
   if (deal.rawText && deal.source === 'whatsapp' && getSettings().standardizeForwards) {

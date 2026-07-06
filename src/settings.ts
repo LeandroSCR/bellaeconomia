@@ -81,7 +81,9 @@ function persistSettings(s: PortalSettings): void {
     .catch(err => console.error('[SETTINGS] Erro ao salvar:', (err as Error).message));
 }
 
-// Retorna se a loja está habilitada pelo usuário
+// Retorna se a loja está habilitada pelo usuário.
+// WHITELIST: loja desconhecida (sem programa de afiliado) NUNCA passa —
+// só repassamos Shopee, Amazon e Mercado Livre (+ agregadores com toggle).
 export function isStoreEnabled(source: string): boolean {
   const s = source.toLowerCase();
   const { stores } = getSettings();
@@ -90,7 +92,8 @@ export function isStoreEnabled(source: string): boolean {
   if (s.includes('shopee')) return stores.shopee ?? true;
   if (s.includes('pelando')) return stores.pelando ?? true;
   if (s.includes('promobit')) return stores.promobit ?? true;
-  return true;
+  if (s === 'whatsapp') return true; // deals da fila já filtrados no sourceMonitor
+  return false;
 }
 
 // Detecta se um anúncio é de cupom de desconto (não de produto específico).

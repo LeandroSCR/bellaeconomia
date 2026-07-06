@@ -5,7 +5,7 @@
 // ══════════════════════════════════════════════════════════════════════════
 
 import { describe, it, expect } from 'vitest';
-import { isCouponAnnouncement, detectSourceFromText } from '../../src/settings';
+import { isCouponAnnouncement, detectSourceFromText, isStoreEnabled } from '../../src/settings';
 
 describe('isCouponAnnouncement', () => {
   it('cupom explícito de loja é cupom', () => {
@@ -58,5 +58,17 @@ describe('detectSourceFromText', () => {
 
   it('retorna "outro" quando não reconhece', () => {
     expect(detectSourceFromText('loja desconhecida https://foo.bar')).toBe('outro');
+  });
+});
+
+describe('isStoreEnabled (whitelist de lojas afiliadas)', () => {
+  it('loja desconhecida NUNCA passa (caso Kabum)', () => {
+    expect(isStoreEnabled('outro')).toBe(false);
+    expect(isStoreEnabled('kabum')).toBe(false);
+    expect(isStoreEnabled('magalu')).toBe(false);
+  });
+
+  it('deals da fila (source whatsapp) passam — já filtrados no sourceMonitor', () => {
+    expect(isStoreEnabled('whatsapp')).toBe(true);
   });
 });
