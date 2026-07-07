@@ -4,7 +4,7 @@
 // ══════════════════════════════════════════════════════════════════════════
 
 import { describe, it, expect } from 'vitest';
-import { cleanSiteTitle, extractTitleFromHtml } from '../../src/shared/productTitle';
+import { cleanSiteTitle, extractTitleFromHtml, extractPriceFromHtml } from '../../src/shared/productPage';
 
 describe('cleanSiteTitle', () => {
   it('remove sufixos da Amazon', () => {
@@ -64,5 +64,68 @@ describe('extractTitleFromHtml', () => {
   it('null quando não há título aproveitável', () => {
     expect(extractTitleFromHtml('<html><body>sem titulo</body></html>')).toBeNull();
     expect(extractTitleFromHtml('<title>Robot Check</title>')).toBeNull();
+  });
+});
+
+describe('extractPriceFromHtml', () => {
+  it('JSON-LD com offers.price (padrão ML)', () => {
+    const html = '<script type="application/ld+json">{"@type":"Product","name":"X","offers":{"@type":"Offer","price":889,"priceCurrency":"BRL"}}</script>';
+    expect(extractPriceFromHtml(html)).toEqual({ preco: 889 });
+  });
+
+  it('JSON-LD em array e price string', () => {
+    const html = '<script type="application/ld+json">[{"@type":"Product","offers":[{"price":"62.91"}]}]</script>';
+    expect(extractPriceFromHtml(html)).toEqual({ preco: 62.91 });
+  });
+
+  it('meta itemprop=price', () => {
+    const html = '<meta itemprop="price" content="129.90">';
+    expect(extractPriceFromHtml(html)).toEqual({ preco: 129.9 });
+  });
+
+  it('padrão priceAmount da Amazon com preço original (basisPrice)', () => {
+    const html = '{"priceAmount":62.91,"basisPrice":{"amount":89.90},"currencyCode":"BRL"}';
+    const r = extractPriceFromHtml(html);
+    expect(r.preco).toBe(62.91);
+    expect(r.precoOriginal).toBe(89.9);
+  });
+
+  it('padrão a-price-whole/fraction da Amazon', () => {
+    const html = '<span class="a-price-whole">1.606<span class="a-price-decimal">,</span></span><span class="a-price-fraction">00</span>';
+    expect(extractPriceFromHtml(html).preco).toBe(1606);
+  });
+
+  it('vazio quando não há preço ou é inválido', () => {
+    expect(extractPriceFromHtml('<html>nada aqui</html>')).toEqual({});
+  });
+
+  it('JSON-LD malformado não quebra (cai nos próximos padrões)', () => {
+    const html = '<script type="application/ld+json">{quebrado</script><meta itemprop="price" content="55.50">';
+    expect(extractPriceFromHtml(html)).toEqual({ preco: 55.5 });
+  });
+});
+
+describe('extractPriceFromHtml — Mercado Livre (andes)', () => {
+  const mlHtml = `
+    <span aria-label="Antes: 209 reais com 90 centavos" data-andes-money-amount="true">
+      <span class="andes-money-amount__fraction">209</span><span>,</span><span class="andes-money-amount__cents">90</span>
+    </span>
+    <span aria-label="189 reais" data-andes-money-amount="true">
+      <span class="andes-money-amount__fraction">189</span>
+    </span>`;
+
+  it('separa preço atual do riscado ("Antes:")', () => {
+    expect(extractPriceFromHtml(mlHtml)).toEqual({ preco: 189, precoOriginal: 209.9 });
+  });
+
+  it('só riscado sem atual → vazio', () => {
+    const soAntes = '<span aria-label="Antes: 100 reais" data-andes-money-amount="true"><span class="andes-money-amount__fraction">100</span></span>';
+    expect(extractPriceFromHtml(soAntes)).toEqual({});
+  });
+});
+
+describe('extractPriceFromHtml — preço zero é preservado', () => {
+  it('meta price 0 retorna 0 (não vazio)', () => {
+    expect(extractPriceFromHtml('<meta itemprop="price" content="0">')).toEqual({ preco: 0 });
   });
 });

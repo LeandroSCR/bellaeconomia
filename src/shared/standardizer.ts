@@ -10,7 +10,7 @@
 // ══════════════════════════════════════════════════════════════════════════
 
 import { extractAdInput } from './adExtractor';
-import { fetchProductTitle } from './productTitle';
+import { fetchProductInfo } from './productPage';
 import { renderTemplate } from './templates/renderer';
 import { templateStore } from './templates/store';
 
@@ -30,10 +30,20 @@ export async function standardizeForward(
 ): Promise<string> {
   try {
     const link = processedText.match(/https?:\/\/[^\s]+/)?.[0];
-    const siteTitle = link ? await fetchProductTitle(link) : null;
+    const info = link ? await fetchProductInfo(link) : { title: null };
 
-    const input = extractAdInput(originalText, processedText, source, siteTitle ?? undefined);
+    const input = extractAdInput(originalText, processedText, source, info.title ?? undefined);
     if (!input) return processedText;
+
+    // Preço: o do ANÚNCIO NO SITE é a fonte da verdade — sempre que a página
+    // devolver preço (mesmo R$ 0), ele vence o extraído do texto da mensagem
+    if (info.preco != null) {
+      input.preco = info.preco;
+      input.precoOriginal =
+        info.precoOriginal != null && info.precoOriginal > info.preco
+          ? info.precoOriginal
+          : undefined;
+    }
 
     const template = await templateStore.getDefault();
     const rendered = renderTemplate(template.content, input);

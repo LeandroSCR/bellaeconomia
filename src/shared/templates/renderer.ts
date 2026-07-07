@@ -18,7 +18,7 @@ export function buildPlaceholderValues(input: AdInput): Record<string, string> {
     link: input.link?.trim() ?? '',
     loja: input.loja?.trim() ?? '',
     cupom: input.cupom?.trim() ?? '',
-    preco: input.preco != null && input.preco > 0 ? formatPrice(input.preco) : '',
+    preco: input.preco != null && input.preco >= 0 ? formatPrice(input.preco) : '', // >= 0: preço zerado do anúncio também aparece
     preco_original:
       input.precoOriginal != null && input.precoOriginal > 0
         ? formatPrice(input.precoOriginal)

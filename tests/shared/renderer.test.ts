@@ -93,3 +93,10 @@ describe('validateAdInput', () => {
     expect(errors.length).toBeGreaterThan(0);
   });
 });
+
+describe('preço zero do anúncio', () => {
+  it('renderiza R$ 0,00 em vez de derrubar a linha', () => {
+    const v = buildPlaceholderValues({ titulo: 'X', link: 'https://a.b', preco: 0 });
+    expect(v.preco).toBe('R$ 0,00');
+  });
+});
