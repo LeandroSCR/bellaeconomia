@@ -139,8 +139,10 @@ NUNCA `cupons?` (só casa o plural; bug real que quebrou a detecção).
 
 Fluxo: forwarder detecta cupom → troca links por afiliados → salva em
 `curation_items` (SQLite) com mídia em `data/media/` → aba **Curadoria** do portal
-permite EDITAR o texto, aprovar (envia) ou rejeitar. Itens decididos são limpos
-após 7 dias no boot (`cleanOldCurationItems`).
+permite EDITAR o texto, aprovar (envia) ou rejeitar.
+**Expiração:** pendente há mais de 24h sem decisão é rejeitado automaticamente
+(`expireOldCurationItems`, cron a cada 30min + 20s após o boot). Itens decididos
+são limpos após 7 dias no boot (`cleanOldCurationItems`).
 
 **REGRAS DE ORDEM (aprendidas com bug real):**
 - O desvio para curadoria acontece ANTES do filtro de tipo no sourceMonitor —

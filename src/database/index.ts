@@ -161,6 +161,7 @@ const stmts = {
   updateCurationStatus: db.prepare('UPDATE curation_items SET status = ? WHERE id = ?'),
   countCurationByStatus: db.prepare('SELECT status, COUNT(*) as count FROM curation_items GROUP BY status'),
   cleanOldCuration: db.prepare("DELETE FROM curation_items WHERE status != 'pending' AND created_at < ?"),
+  getPendingCurationOlderThan: db.prepare("SELECT * FROM curation_items WHERE status = 'pending' AND created_at < ?"),
 };
 
 // ── Helper: cede o event loop antes de executar operação síncrona de DB ───────
@@ -420,5 +421,13 @@ export function cleanOldCurationItems(days = 7): Promise<void> {
   return run(() => {
     const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
     stmts.cleanOldCuration.run(cutoff);
+  });
+}
+
+/** Itens pendentes há mais de N horas (candidatos à expiração automática). */
+export function getPendingCurationOlderThan(hours: number): Promise<CurationItem[]> {
+  return run(() => {
+    const cutoff = Math.floor(Date.now() / 1000) - hours * 3600;
+    return (stmts.getPendingCurationOlderThan.all(cutoff) as Record<string, unknown>[]).map(rowToCurationItem);
   });
 }

@@ -665,6 +665,7 @@ function CurationTab({ onChanged }: { onChanged: () => void }) {
       <div className="shopee-toolbar">
         <div className="shopee-counts">
           <span className="sc-badge sc-pending">{items.length} cupons aguardando</span>
+          <span className="s-meta">⏳ sem decisão em 24h = rejeitado automaticamente</span>
         </div>
         <button className="refresh-btn" onClick={load}>🔄 Atualizar</button>
       </div>

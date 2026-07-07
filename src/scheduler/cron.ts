@@ -6,6 +6,7 @@ import { fetchAmazonDeals } from '../deals/providers/amazon';
 import { fetchMercadoLivreDeals } from '../deals/providers/mercadolivre';
 import { fetchShopeeSuggestions } from '../deals/providers/shopee';
 import { saveShopeeSuggestions } from '../database';
+import { expireOldCurationItems } from '../curation/publisher';
 import { enqueue, flushQueue } from './queue';
 
 async function fetchAll(): Promise<void> {
@@ -41,11 +42,17 @@ export function startScheduler(): void {
   cron.schedule('* * * * *', flushQueue);
   // Sugestões Shopee: busca diária às 8h
   cron.schedule('0 8 * * *', fetchShopeeSuggestionsJob);
+  // Curadoria: rejeita automaticamente itens pendentes há mais de 24h
+  const expireJob = () => expireOldCurationItems(24).catch(err =>
+    console.error('[CURADORIA] erro na expiração:', (err as Error).message));
+  cron.schedule('*/30 * * * *', expireJob);
 
-  console.log(`Scheduler ativo: fetch a cada ${config.FETCH_INTERVAL_MIN}min, envio verificado a cada 1min`);
+  console.log(`Scheduler ativo: fetch a cada ${config.FETCH_INTERVAL_MIN}min, envio verificado a cada 1min, curadoria expira em 24h`);
 
   // Fetch inicial após 10s para o WhatsApp ter tempo de conectar
   setTimeout(fetchAll, 10_000);
+  // Expira curadoria pendente logo após o boot (pega o que venceu com o bot desligado)
+  setTimeout(expireJob, 20_000);
 }
 
 function intervalToCron(minutes: number): string {

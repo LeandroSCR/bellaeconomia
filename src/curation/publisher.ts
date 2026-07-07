@@ -13,7 +13,7 @@ import { MessageMedia } from 'whatsapp-web.js';
 import { getClient, isClientReady } from '../whatsapp/client';
 import { config } from '../config';
 import {
-  getCurationItemById, updateCurationStatus, markSent,
+  getCurationItemById, updateCurationStatus, markSent, getPendingCurationOlderThan,
 } from '../database';
 import { recordActivity } from '../metrics';
 
@@ -95,6 +95,28 @@ export async function rejectCurationItem(id: string): Promise<boolean> {
     group: item.groupName,
   });
   return true;
+}
+
+/** Rejeita automaticamente itens pendentes há mais de N horas sem decisão.
+ *  Rodado pelo scheduler a cada 30min. Retorna quantos foram expirados. */
+export async function expireOldCurationItems(hours = 24): Promise<number> {
+  const expired = await getPendingCurationOlderThan(hours);
+  for (const item of expired) {
+    await updateCurationStatus(item.id, 'rejected');
+    if (item.imagePath) {
+      try { await fs.promises.unlink(item.imagePath); } catch {}
+    }
+    recordActivity({
+      type: 'discarded',
+      message: `[CURADORIA] expirado (${hours}h sem decisão): ${item.processedText.split('\n')[0]?.slice(0, 50)}`,
+      source: item.source,
+      group: item.groupName,
+    });
+  }
+  if (expired.length > 0) {
+    console.log(`[CURADORIA] ${expired.length} item(ns) expirado(s) após ${hours}h sem decisão`);
+  }
+  return expired.length;
 }
 
 function sleep(ms: number): Promise<void> {
