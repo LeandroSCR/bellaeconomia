@@ -16,8 +16,8 @@ import { templateStore } from './templates/store';
 
 /**
  * Padroniza uma mensagem de repasse usando o template padrão do portal.
- * O título vem da PÁGINA DO PRODUTO (fonte da verdade); se o site bloquear
- * ou falhar, cai no extrator heurístico do texto da mensagem.
+ * TÍTULO: vem da página do produto (fonte da verdade); fallback heurístico.
+ * PREÇO: copiado exatamente da publicação do grupo fonte (nunca do site).
  * @param originalText  texto original do grupo fonte
  * @param processedText texto com links de afiliado já substituídos
  * @param source        loja detectada
@@ -35,15 +35,9 @@ export async function standardizeForward(
     const input = extractAdInput(originalText, processedText, source, info.title ?? undefined);
     if (!input) return processedText;
 
-    // Preço: o do ANÚNCIO NO SITE é a fonte da verdade — sempre que a página
-    // devolver preço (mesmo R$ 0), ele vence o extraído do texto da mensagem
-    if (info.preco != null) {
-      input.preco = info.preco;
-      input.precoOriginal =
-        info.precoOriginal != null && info.precoOriginal > info.preco
-          ? info.precoOriginal
-          : undefined;
-    }
+    // PREÇO: copiado exatamente da publicação do grupo fonte (extractAdInput
+    // já o extraiu do texto). O preço do site NÃO é usado — decisão do usuário
+    // em 07/07/2026. Apenas o TÍTULO vem da página do produto.
 
     const template = await templateStore.getDefault();
     const rendered = renderTemplate(template.content, input);
