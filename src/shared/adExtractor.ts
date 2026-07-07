@@ -37,13 +37,14 @@ export function isCampaignHeader(line: string): boolean {
   return meaningful.length < 4;
 }
 
-/** Converte "R$ 1.299,90" / "R$ 23,44" / "R$ 360" em número. */
+/** Converte "R$ 1.299,90" / "R$ 23,44" / "R$ 360" em número.
+ *  R$ 0 é VÁLIDO — o preço é copiado exatamente como está na publicação. */
 export function parsePrice(raw: string): number | undefined {
   const match = raw.match(/R\$\s*([\d.]+(?:,\d{1,2})?)/i);
   if (!match) return undefined;
   const normalized = match[1].replace(/\./g, '').replace(',', '.');
   const value = parseFloat(normalized);
-  return Number.isFinite(value) && value > 0 ? value : undefined;
+  return Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 // Sinais de que uma linha é título de PRODUTO: specs técnicas e códigos de modelo
@@ -106,24 +107,24 @@ export function extractPrices(text: string): { preco?: number; precoOriginal?: n
   if (priceA && priceB) {
     const original = parsePrice(priceA);
     const atual = parsePrice(priceB);
-    if (original && atual && original > atual) {
+    if (original != null && atual != null && original > atual) {
       return { preco: atual, precoOriginal: original };
     }
-    if (atual) return { preco: atual };
+    if (atual != null) return { preco: atual };
   }
 
   // "POR: R$ Y" explícito
   const porMatch = text.match(/\bpor\s*:?\s*\*?R\$\s*[\d.,]+/i);
   if (porMatch) {
     const preco = parsePrice(porMatch[0]);
-    if (preco) return { preco };
+    if (preco != null) return { preco };
   }
 
   // Primeiro preço avulso do texto
   const first = text.match(/R\$\s*[\d.,]+/i);
   if (first) {
     const preco = parsePrice(first[0]);
-    if (preco) return { preco };
+    if (preco != null) return { preco };
   }
 
   return {};

@@ -184,7 +184,7 @@ export async function fetchProductInfo(url: string): Promise<ProductPageInfo> {
         Accept: 'text/html,application/xhtml+xml',
       },
       // páginas de produto são grandes — só o começo interessa
-      maxContentLength: 2_000_000,
+      maxContentLength: 20_000_000, // paginas da Amazon passam de 2MB
     });
     const html = String(r.data);
     const title = extractTitleFromHtml(html);

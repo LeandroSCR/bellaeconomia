@@ -151,3 +151,23 @@ describe('extractAdInput', () => {
     expect(input!.loja).toBeUndefined();
   });
 });
+
+describe('preço R$ 0 é copiado exatamente (caso Dog Chow)', () => {
+  it('parsePrice aceita zero', () => {
+    expect(parsePrice('R$ 0')).toBe(0);
+    expect(parsePrice('R$ 0,00')).toBe(0);
+  });
+
+  it('extractPrices propaga o zero', () => {
+    expect(extractPrices('💵 R$ 0')).toEqual({ preco: 0 });
+  });
+
+  it('extractAdInput carrega preco 0 até o template', () => {
+    const input = extractAdInput(
+      'Pack Dog Chow Ração Úmida\n💵 R$ 0\nhttps://amzn.to/orig',
+      'Pack Dog Chow Ração Úmida\n💵 R$ 0\nhttps://amzn.to/meulink',
+      'amazon'
+    );
+    expect(input!.preco).toBe(0);
+  });
+});
