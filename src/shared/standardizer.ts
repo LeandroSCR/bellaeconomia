@@ -10,11 +10,14 @@
 // ══════════════════════════════════════════════════════════════════════════
 
 import { extractAdInput } from './adExtractor';
+import { fetchProductTitle } from './productTitle';
 import { renderTemplate } from './templates/renderer';
 import { templateStore } from './templates/store';
 
 /**
  * Padroniza uma mensagem de repasse usando o template padrão do portal.
+ * O título vem da PÁGINA DO PRODUTO (fonte da verdade); se o site bloquear
+ * ou falhar, cai no extrator heurístico do texto da mensagem.
  * @param originalText  texto original do grupo fonte
  * @param processedText texto com links de afiliado já substituídos
  * @param source        loja detectada
@@ -26,7 +29,10 @@ export async function standardizeForward(
   source: string
 ): Promise<string> {
   try {
-    const input = extractAdInput(originalText, processedText, source);
+    const link = processedText.match(/https?:\/\/[^\s]+/)?.[0];
+    const siteTitle = link ? await fetchProductTitle(link) : null;
+
+    const input = extractAdInput(originalText, processedText, source, siteTitle ?? undefined);
     if (!input) return processedText;
 
     const template = await templateStore.getDefault();

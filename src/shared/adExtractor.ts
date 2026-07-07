@@ -169,12 +169,14 @@ const STORE_LABELS: Record<string, string> = {
 export function extractAdInput(
   originalText: string,
   processedText: string,
-  source: string
+  source: string,
+  titleOverride?: string
 ): AdInput | null {
   // Preços e cupons usam o texto normalizado (𝟵𝟬𝟲 → 906); o título recebe o
-  // ORIGINAL — a fonte estilizada é sinal de cabeçalho e pesa na pontuação
+  // ORIGINAL — a fonte estilizada é sinal de cabeçalho e pesa na pontuação.
+  // titleOverride: título REAL vindo da página do produto (fonte da verdade).
   const normalized = normalizeStylized(originalText);
-  const titulo = extractTitle(originalText);
+  const titulo = titleOverride ?? extractTitle(originalText);
   const link = processedText.match(URL_REGEX)?.[0];
 
   // Sem título ou sem link → não dá para padronizar com segurança
