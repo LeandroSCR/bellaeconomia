@@ -46,3 +46,27 @@ export function classifyUrl(url: string): UrlClass {
 export function findForeignStoreUrls(urls: string[]): string[] {
   return urls.filter(u => classifyUrl(u) === 'foreign');
 }
+
+// Padrões de URL que apontam para UM produto específico. Avaliado sobre o
+// texto PROCESSADO (links já trocados): Amazon vem expandida (/dp/...);
+// meli.la e s.shopee/shope.ee são gerados por nós — sempre produto único.
+const SINGLE_PRODUCT_URL_PATTERNS = [
+  /amazon\.com(?:\.br)?\/(?:[^\s]*\/)?dp\/[A-Z0-9]{6,}/i, // Amazon /dp/
+  /amazon\.com(?:\.br)?\/gp\/product\/[A-Z0-9]{6,}/i,     // Amazon /gp/product/
+  /-i\.\d+\.\d+/,                                          // Shopee produto-i.shop.item
+  /shopee\.com\.br\/product\/\d+\/\d+/i,                   // Shopee /product/
+  /\bs\.shopee\.com\.br\//i,                               // short Shopee (gerado por nós)
+  /\bshope\.ee\//i,
+  /\bmeli\.la\//i,                                         // short ML (gerado por nós)
+  /\bmercadol\.com\.br\//i,
+  /MLB-?\d{6,}/,                                           // Mercado Livre MLB123456
+  /mercadolivre\.com\.br\/[^\s]*\/p\/MLB\d+/i,             // ML catálogo
+  /_JM/,                                                   // ML sufixo de produto
+];
+
+/** O texto (já com links de afiliado) indica UM produto específico?
+ *  Página de campanha (amazon.com.br/primeday, /deals, home da loja) → false —
+ *  pela regra do usuário, anúncio sem produto único vai para curadoria. */
+export function indicatesSingleProduct(processedText: string): boolean {
+  return SINGLE_PRODUCT_URL_PATTERNS.some(p => p.test(processedText));
+}

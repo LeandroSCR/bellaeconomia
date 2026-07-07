@@ -4,7 +4,7 @@
 // ══════════════════════════════════════════════════════════════════════════
 
 import { describe, it, expect } from 'vitest';
-import { classifyUrl, findForeignStoreUrls } from '../../src/shared/urlPolicy';
+import { classifyUrl, findForeignStoreUrls, indicatesSingleProduct } from '../../src/shared/urlPolicy';
 
 describe('classifyUrl', () => {
   it('plataformas afiliadas → affiliate', () => {
@@ -54,5 +54,25 @@ describe('findForeignStoreUrls', () => {
   it('mensagem limpa (afiliadas + grupo) retorna vazio', () => {
     const urls = ['https://meli.la/x', 'https://chat.whatsapp.com/grupo'];
     expect(findForeignStoreUrls(urls)).toEqual([]);
+  });
+});
+
+describe('indicatesSingleProduct (regra: sem produto único → curadoria)', () => {
+  it('página de campanha da Amazon NÃO é produto único (caso Prime Day)', () => {
+    expect(indicatesSingleProduct('Ofertas!\nhttps://www.amazon.com.br/primeday?tag=bellaeconomia-20')).toBe(false);
+    expect(indicatesSingleProduct('https://www.amazon.com.br/deals?tag=x')).toBe(false);
+    expect(indicatesSingleProduct('https://www.amazon.com.br/?tag=x')).toBe(false);
+  });
+
+  it('URLs de produto específico SÃO produto único', () => {
+    expect(indicatesSingleProduct('https://www.amazon.com.br/dp/B08VH5ZTB3?tag=x')).toBe(true);
+    expect(indicatesSingleProduct('https://meli.la/1tiwXvz')).toBe(true);
+    expect(indicatesSingleProduct('https://s.shopee.com.br/abc123')).toBe(true);
+    expect(indicatesSingleProduct('https://produto.mercadolivre.com.br/MLB-123456789-furadeira-_JM')).toBe(true);
+    expect(indicatesSingleProduct('https://shopee.com.br/produto-i.123.456')).toBe(true);
+  });
+
+  it('texto sem URL não indica produto', () => {
+    expect(indicatesSingleProduct('promoção imperdível sem link')).toBe(false);
   });
 });

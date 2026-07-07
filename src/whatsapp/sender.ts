@@ -9,6 +9,7 @@ import { isSpecialDay } from '../calendar/specialDates';
 import { isStoreEnabled, isTypeEnabled, getSettings } from '../settings';
 import { standardizeForward } from '../shared/standardizer';
 import { shouldCurateAsCoupon } from '../shared/couponGate';
+import { indicatesSingleProduct } from '../shared/urlPolicy';
 import { recordActivity } from '../metrics';
 import type { Deal } from '../deals/types';
 
@@ -59,13 +60,21 @@ export async function sendDealToGroups(deal: Deal): Promise<boolean> {
     return false;
   }
 
-  const client = getClient();
-
-  // Rede de segurança: deal de grupo fonte com cupom NUNCA sai automático —
-  // desvia para curadoria (pega backlog enfileirado antes da regra existir)
-  if (deal.rawText && deal.source === 'whatsapp' && shouldCurateAsCoupon(deal.rawText)) {
+  // ── Deals de grupo fonte (rawText) ─────────────────────────────────────────
+  // Rede de segurança: cupom OU link sem produto único (página de campanha)
+  // NUNCA sai automático — desvia para curadoria. Produto único é padronizado.
+  if (deal.rawText && deal.source === 'whatsapp') {
+    const isCoupon = shouldCurateAsCoupon(deal.rawText);
     const processed = await replaceAffiliateLinks(deal.rawText);
-    if (processed !== null) {
+
+    if (processed === null) {
+      console.log('[SENDER] sem link afiliado válido — deal descartada');
+      recordActivity({ type: 'discarded', message: `Sem link afiliado: ${deal.title.slice(0, 60)}`, source: deal.source });
+      await markSent(deal.id, 'discarded', 'no_affiliate');
+      return false;
+    }
+
+    if (isCoupon || !indicatesSingleProduct(processed)) {
       await saveCurationItem({
         id: deal.id,
         originalText: deal.rawText,
@@ -73,19 +82,23 @@ export async function sendDealToGroups(deal: Deal): Promise<boolean> {
         source: deal.store,
         imagePath: deal.imageUrl?.startsWith('local:') ? deal.imageUrl.slice(6) : undefined,
       });
-      recordActivity({ type: 'filtered', message: `Cupom na curadoria (fila): ${deal.title.slice(0, 50)}`, source: deal.store });
-      console.log('[SENDER] deal com cupom desviada para curadoria');
+      recordActivity({ type: 'filtered', message: `Curadoria (fila): ${deal.title.slice(0, 50)}`, source: deal.store });
+      console.log(`[SENDER] deal desviada para curadoria (${isCoupon ? 'cupom' : 'sem produto único'})`);
+      await markSent(deal.id, 'curation', 'to_curation');
+      return false;
     }
-    await markSent(deal.id, 'curation', 'to_curation');
-    return false;
+
+    const message = getSettings().standardizeForwards
+      ? await standardizeForward(deal.rawText, processed, deal.store)
+      : processed;
+    return deliverMessage(deal, message);
   }
 
-  // rawText: mensagens encaminhadas do WhatsApp ficam no campo rawText (texto original)
-  // Para demais fontes de API, formata a deal estruturada
-  const baseMessage = deal.rawText ?? formatDeal(deal);
-  // Shopee já tem link afiliado — não reprocessar
+  // ── Deals estruturados de API (Shopee, Amazon, ML, agregadores) ────────────
+  const baseMessage = formatDeal(deal);
   let message: string;
   if (deal.source === 'shopee') {
+    // Shopee já tem link afiliado — não reprocessar
     message = baseMessage;
   } else {
     // NUNCA envia com link cru: sem link afiliado válido, a deal é descartada
@@ -99,10 +112,12 @@ export async function sendDealToGroups(deal: Deal): Promise<boolean> {
     message = processed;
   }
 
-  // Produtos vindos de grupos fonte: padroniza com o template padrão do canal
-  if (deal.rawText && deal.source === 'whatsapp' && getSettings().standardizeForwards) {
-    message = await standardizeForward(deal.rawText, message, deal.store);
-  }
+  return deliverMessage(deal, message);
+}
+
+// Entrega a mensagem (com mídia, se houver) a todos os grupos destino.
+async function deliverMessage(deal: Deal, message: string): Promise<boolean> {
+  const client = getClient();
 
   // Carrega mídia: local (salva do grupo fonte durante delay) ou URL remota (APIs)
   let media: InstanceType<typeof MessageMedia> | null = null;

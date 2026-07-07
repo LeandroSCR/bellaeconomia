@@ -8,6 +8,7 @@ import { canSendNow, markSentNow, enqueue } from '../scheduler/queue';
 import { isStoreEnabled, isTypeEnabled, detectSourceFromText, getSettings } from '../settings';
 import { standardizeForward } from '../shared/standardizer';
 import { shouldCurateAsCoupon } from '../shared/couponGate';
+import { indicatesSingleProduct } from '../shared/urlPolicy';
 import { recordActivity } from '../metrics';
 import { isBotEnabled } from '../botState';
 import { createHash } from 'crypto';
@@ -248,6 +249,26 @@ export async function handleSourceMessage(msg: Message): Promise<void> {
   if (processedText === null) {
     console.log('[SOURCE] promoção descartada: link ML não resolveu para produto único');
     recordActivity({ type: 'discarded', message: `ML: produto não identificado — ${title}`, source, group });
+    return;
+  }
+
+  // Link de campanha/multi-produto (amazon.com.br/primeday etc.) não é produto
+  // único → vai para curadoria (regra do usuário: sem produto único = cupom)
+  if (!indicatesSingleProduct(processedText)) {
+    let imagePath: string | undefined;
+    if (msg.hasMedia) {
+      try {
+        const mediaObj = await msg.downloadMedia();
+        if (mediaObj) imagePath = (await saveMediaToDisk(dealId, mediaObj)).slice(6);
+      } catch { /* segue sem imagem */ }
+    }
+    const isNew = await saveCurationItem({
+      id: dealId, originalText: body, processedText, source, groupName: group, imagePath,
+    });
+    if (isNew) {
+      console.log(`[SOURCE] link sem produto único (campanha) → fila de curadoria`);
+      recordActivity({ type: 'filtered', message: `Campanha na curadoria: ${title}`, source, group });
+    }
     return;
   }
 
