@@ -42,6 +42,21 @@ describe('extractTitle', () => {
     expect(extractTitle(text)).toBe('Suggar Coifa De Parede Coral 90Cm Inox Tp0692Ix');
   });
 
+  it('cabeçalho estilizado fora da lista de palavras perde para linha com specs (caso Tablet Lenovo)', () => {
+    const text = '𝙐𝙡𝙩𝙞𝙢𝙤 𝙙𝙞𝙖 - 𝙋𝙧𝙞𝙢𝙚 𝘿𝙖𝙮\n\nTablet Lenovo Idea Tab Plus 8/128GB, 12.1" 2.5k 90hz com Caneta E Capa\n\n🔥 R$ 1.606 no PIX\n🏷️ Resgate os cupons do anúncio\n\n🛒Compre aqui: https://link.amazon/B0ixZTRyb';
+    expect(extractTitle(text)).toBe('Tablet Lenovo Idea Tab Plus 8/128GB, 12.1" 2.5k 90hz com Caneta E Capa');
+  });
+
+  it('linha "Compre aqui" com URL no meio não vira título', () => {
+    const text = 'Cabo USB-C 2m Baseus\n🛒Compre aqui: https://meli.la/x';
+    expect(extractTitle(text)).toBe('Cabo USB-C 2m Baseus');
+  });
+
+  it('mensagem toda estilizada ainda extrai título (fallback)', () => {
+    const text = '𝙏𝙚𝙘𝙡𝙖𝙙𝙤 𝙈𝙚𝙘𝙖𝙣𝙞𝙘𝙤 𝙍𝙚𝙙𝙧𝙖𝙜𝙤𝙣\nR$ 199\nhttps://amzn.to/x';
+    expect(extractTitle(text)).toBe('Teclado Mecanico Redragon');
+  });
+
   it('pula cabeçalhos de campanha variados', () => {
     expect(extractTitle('🔥ESQUENTA BLACK FRIDAY🔥\nNotebook Lenovo IdeaPad 15\nR$ 2.199')).toBe('Notebook Lenovo IdeaPad 15');
     expect(extractTitle('OFERTA RELÂMPAGO!!!\nAir Fryer Mondial 4L\nhttps://a.b/x')).toBe('Air Fryer Mondial 4L');

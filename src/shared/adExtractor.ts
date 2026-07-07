@@ -22,7 +22,11 @@ export function normalizeStylized(text: string): string {
 
 // Palavras/frases de campanha que não identificam produto nenhum
 const CAMPAIGN_WORDS =
-  /(ofertas?|promo(?:ç|c)(?:ã|a)o|promo(?:ç|c)(?:õ|o)es|prime\s*day|black\s*friday|cyber\s*monday|esquenta|achadinhos?|achados?|imperd[ií]ve(?:l|is)|rel[âa]mpago|queima\s*de\s*estoque|mega|super|hiper|do\s*dia|da\s*semana|s[óo]\s*hoje|hoje\s*tem|corre[!\s]*|últimas?\s*unidades?|frete\s*gr[áa]tis|desconto|off|antecipad[ao]s?|exclusiv[ao]s?|especial|apro?veite[m]?)/gi;
+  /(ofertas?|promo(?:ç|c)(?:ã|a)o|promo(?:ç|c)(?:õ|o)es|prime\s*day|black\s*friday|cyber\s*monday|esquenta|achadinhos?|achados?|imperd[ií]ve(?:l|is)|rel[âa]mpago|queima\s*de\s*estoque|mega|super|hiper|do\s*dia|da\s*semana|s[óo]\s*hoje|hoje\s*tem|corre[!\s]*|[úu]ltim[oa]s?\s*(?:dia|hora|chance|unidade)s?|acaba\s*hoje|termina\s*hoje|s[óo]\s*at[ée]|encerra\w*|frete\s*gr[áa]tis|desconto|off|antecipad[ao]s?|exclusiv[ao]s?|especial|apro?veite[m]?)/gi;
+
+// Blocos de "letras enfeitadas" — divulgadores estilizam CABEÇALHOS
+// (𝙐𝙡𝙩𝙞𝙢𝙤 𝙙𝙞𝙖), nunca o nome do produto (precisa ser pesquisável)
+const STYLIZED_REGEX = /[\u{1D400}-\u{1D7FF}]/u;
 
 /** Linha que é SÓ cabeçalho de campanha ("Oferta Prime Day", "🔥ESQUENTA BLACK
  *  FRIDAY🔥") — removendo as palavras de campanha não sobra conteúdo. */
@@ -42,20 +46,50 @@ export function parsePrice(raw: string): number | undefined {
   return Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
-/** Primeira linha "de conteúdo" — ignora URLs, preços puros, linhas de cupom
- *  e cabeçalhos de campanha ("Oferta Prime Day" não é título de produto). */
+// Sinais de que uma linha é título de PRODUTO: specs técnicas e códigos de modelo
+const SPEC_REGEX = /\d+\s*(?:gb|tb|mb|hz|ghz|mah|w|kw|v|ml|l|kg|g|cm|mm|m|pol(?:egadas?)?|"|k|rpm|p[çc]s?|un|x\d)/i;
+const MODEL_CODE_REGEX = /\b[A-Za-z]{2,}[-]?\d{2,}\b|\b\d+\/\d+\s*gb\b/i;
+
+/** Pontua uma candidata a título: sinais de produto somam, de campanha subtraem. */
+function scoreTitleCandidate(normalizedLine: string, originalLine: string): number {
+  let score = 0;
+  if (SPEC_REGEX.test(normalizedLine)) score += 2;
+  if (MODEL_CODE_REGEX.test(normalizedLine)) score += 1;
+  if (normalizedLine.length >= 25 && normalizedLine.length <= 90) score += 1;
+  if (STYLIZED_REGEX.test(originalLine)) score -= 3; // fonte enfeitada = cabeçalho
+  if (CAMPAIGN_WORDS.test(normalizedLine)) score -= 2;
+  CAMPAIGN_WORDS.lastIndex = 0; // regex /g guarda estado entre .test()
+  return score;
+}
+
+/** Melhor linha de título — ignora URLs, preços, cupons e cabeçalhos de
+ *  campanha; entre as candidatas, vence a com mais "cara de produto"
+ *  (specs/modelo somam; fonte estilizada e palavras de campanha subtraem). */
 export function extractTitle(text: string): string | undefined {
-  const lines = normalizeStylized(text).split('\n').map(l => l.trim()).filter(Boolean);
-  const titleLine = lines.find(l =>
-    !/^https?:\/\//i.test(l) &&
-    !/(?:cupom|código|code|voucher)\s*[:：]/i.test(l) &&
-    !/^(?:por\s*:?\s*)?R\$/i.test(l) &&
-    !/^(?:de\s+)?R\$\s*[\d.,]+/i.test(l) &&
-    !isCampaignHeader(l) &&
-    l.replace(/[\p{Emoji}\s*_~`]/gu, '').length > 3
-  );
-  if (!titleLine) return undefined;
-  const cleaned = titleLine
+  const originalLines = text.split('\n').map(l => l.trim()).filter(Boolean);
+
+  const candidates = originalLines
+    .map(original => ({ original, normalized: normalizeStylized(original) }))
+    .filter(({ normalized }) =>
+      !/https?:\/\//i.test(normalized) &&
+      !/(?:cupom|código|code|voucher)\s*[:：]/i.test(normalized) &&
+      !/^(?:por\s*:?\s*)?R\$/i.test(normalized) &&
+      !/^(?:de\s+)?R\$\s*[\d.,]+/i.test(normalized) &&
+      !isCampaignHeader(normalized) &&
+      normalized.replace(/[\p{Emoji}\s*_~`]/gu, '').length > 3
+    );
+
+  if (candidates.length === 0) return undefined;
+
+  // Pontuação estável: empate mantém a ordem original (primeira linha vence)
+  let best = candidates[0];
+  let bestScore = scoreTitleCandidate(best.normalized, best.original);
+  for (let i = 1; i < candidates.length; i++) {
+    const score = scoreTitleCandidate(candidates[i].normalized, candidates[i].original);
+    if (score > bestScore) { best = candidates[i]; bestScore = score; }
+  }
+
+  const cleaned = best.normalized
     .replace(/[*_~`]/g, '')
     .replace(/^[\p{Emoji}\p{So}\s]+/u, '')
     .trim();
@@ -137,10 +171,10 @@ export function extractAdInput(
   processedText: string,
   source: string
 ): AdInput | null {
-  // Normaliza caracteres estilizados uma vez — preços e cupons também se
-  // beneficiam (𝟵𝟬𝟲 → 906)
+  // Preços e cupons usam o texto normalizado (𝟵𝟬𝟲 → 906); o título recebe o
+  // ORIGINAL — a fonte estilizada é sinal de cabeçalho e pesa na pontuação
   const normalized = normalizeStylized(originalText);
-  const titulo = extractTitle(normalized);
+  const titulo = extractTitle(originalText);
   const link = processedText.match(URL_REGEX)?.[0];
 
   // Sem título ou sem link → não dá para padronizar com segurança
