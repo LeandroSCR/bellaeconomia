@@ -180,8 +180,18 @@ export async function rejectCuration(id: string): Promise<void> {
   await fetch(`${BASE}/api/curation/${encodeURIComponent(id)}/reject`, { method: 'POST' });
 }
 
-export function curationImageUrl(id: string): string {
-  return `${BASE}/api/curation/${encodeURIComponent(id)}/image`;
+export function curationImageUrl(id: string, version = 0): string {
+  return `${BASE}/api/curation/${encodeURIComponent(id)}/image${version ? `?v=${version}` : ''}`;
+}
+
+/** Troca a foto de um item pendente por uma imagem do PC (data URL base64). */
+export async function uploadCurationImage(id: string, dataUrl: string): Promise<{ ok?: boolean; error?: string }> {
+  const r = await fetch(`${BASE}/api/curation/${encodeURIComponent(id)}/image`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dataUrl }),
+  });
+  return r.json();
 }
 
 // ── Saúde das Engines ─────────────────────────────────────────────────────

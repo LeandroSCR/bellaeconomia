@@ -4,7 +4,7 @@ import {
   fetchShopeeSuggestions, refreshShopeeSuggestions, approveShopeeSuggestion, rejectShopeeSuggestion,
   fetchQueue, deleteQueueItem, fetchEnginesHealth,
   fetchCuration, updateCurationItemText, approveCuration, rejectCuration, curationImageUrl,
-  fetchWhatsAppQr, reconnectWhatsApp,
+  uploadCurationImage, fetchWhatsAppQr, reconnectWhatsApp,
 } from './api';
 import type {
   Stats, Settings, Activity, ShopeeSuggestion, ShopeeSuggestionsResponse, QueueItem,
@@ -696,6 +696,8 @@ function CurationCard({ item, onApprove, onReject }: {
   const [text, setText] = useState(item.processedText);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
+  const [imgVersion, setImgVersion] = useState(0);
+  const [hasImage, setHasImage] = useState(item.hasImage);
   const edited = text !== item.processedText;
   const ago = Math.round((Date.now() - item.createdAt) / 60000);
 
@@ -713,12 +715,32 @@ function CurationCard({ item, onApprove, onReject }: {
     } finally { setSending(false); }
   };
 
+  const handlePickImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const result = await uploadCurationImage(item.id, String(reader.result));
+      if (result.error) { alert(result.error); return; }
+      setHasImage(true);
+      setImgVersion(v => v + 1); // força recarregar a <img>
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
   return (
     <div className="curation-card">
       <div className="curation-main">
-        {item.hasImage && (
-          <img src={curationImageUrl(item.id)} alt="" className="curation-img" />
-        )}
+        <div className="curation-img-col">
+          {hasImage && (
+            <img src={curationImageUrl(item.id, imgVersion)} alt="" className="curation-img" />
+          )}
+          <label className="curation-pick-img">
+            📷 {hasImage ? 'Trocar foto' : 'Adicionar foto'}
+            <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handlePickImage} hidden />
+          </label>
+        </div>
         <div className="curation-body">
           <div className="suggestion-meta-row">
             <span className="activity-source">{SOURCE_LABELS[item.source ?? ''] ?? item.source ?? 'cupom'}</span>

@@ -162,6 +162,7 @@ const stmts = {
   countCurationByStatus: db.prepare('SELECT status, COUNT(*) as count FROM curation_items GROUP BY status'),
   cleanOldCuration: db.prepare("DELETE FROM curation_items WHERE status != 'pending' AND created_at < ?"),
   getPendingCurationOlderThan: db.prepare("SELECT * FROM curation_items WHERE status = 'pending' AND created_at < ?"),
+  updateCurationImage: db.prepare("UPDATE curation_items SET image_path = ? WHERE id = ? AND status = 'pending'"),
 };
 
 // ── Helper: cede o event loop antes de executar operação síncrona de DB ───────
@@ -422,6 +423,11 @@ export function cleanOldCurationItems(days = 7): Promise<void> {
     const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
     stmts.cleanOldCuration.run(cutoff);
   });
+}
+
+/** Troca a foto de um item pendente. Retorna false se não existe ou já decidido. */
+export function updateCurationImage(id: string, imagePath: string): Promise<boolean> {
+  return run(() => stmts.updateCurationImage.run(imagePath, id).changes > 0);
 }
 
 /** Itens pendentes há mais de N horas (candidatos à expiração automática). */

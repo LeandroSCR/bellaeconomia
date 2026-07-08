@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import QRCode from 'qrcode';
 import { initWhatsApp, getClient, isClientReady, getLatestQr, reinitWhatsApp } from './whatsapp/client';
 import { startScheduler } from './scheduler/cron';
@@ -10,7 +11,7 @@ import {
   updateShopeeSuggestionStatus, countShopeeSuggestionsByStatus,
   cleanOldShopeeDeals, getUnsentDeals, markSent,
   getCurationItems, getCurationItemById, updateCurationText,
-  countCurationByStatus, cleanOldCurationItems,
+  countCurationByStatus, cleanOldCurationItems, updateCurationImage,
 } from './database';
 import { approveCurationItem, rejectCurationItem } from './curation/publisher';
 import { getMetrics } from './metrics';
@@ -27,7 +28,8 @@ import {
 import type { Deal } from './deals/types';
 
 const app = express();
-app.use(express.json());
+// Limite folgado: upload de foto da curadoria vem como data URL base64
+app.use(express.json({ limit: '15mb' }));
 
 // Serve portal estático (build React)
 const PORTAL_DIST = path.join(process.cwd(), 'portal', 'dist');
@@ -287,6 +289,38 @@ app.patch('/api/curation/:id', async (req, res) => {
   try {
     const updated = await updateCurationText(req.params.id, text.trim());
     if (!updated) { res.status(404).json({ error: 'Item não encontrado ou já decidido' }); return; }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// Troca a foto de um item pendente por uma imagem do PC do usuário (data URL)
+app.post('/api/curation/:id/image', async (req, res) => {
+  const { dataUrl } = req.body as { dataUrl?: string };
+  const match = dataUrl?.match(/^data:image\/(png|jpe?g|webp|gif);base64,([A-Za-z0-9+/=]+)$/);
+  if (!match) { res.status(400).json({ error: 'Envie uma imagem válida (png/jpg/webp/gif)' }); return; }
+
+  const buffer = Buffer.from(match[2], 'base64');
+  if (buffer.length > 8_000_000) { res.status(400).json({ error: 'Imagem muito grande (máx. 8MB)' }); return; }
+
+  try {
+    const item = await getCurationItemById(req.params.id);
+    if (!item || item.status !== 'pending') {
+      res.status(404).json({ error: 'Item não encontrado ou já decidido' });
+      return;
+    }
+    const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
+    const mediaDir = path.join(process.cwd(), 'data', 'media');
+    await fs.promises.mkdir(mediaDir, { recursive: true });
+    const filePath = path.join(mediaDir, `curation_${req.params.id}.${ext}`);
+    await fs.promises.writeFile(filePath, buffer);
+
+    // Apaga a foto anterior se era outro arquivo
+    if (item.imagePath && item.imagePath !== filePath) {
+      try { await fs.promises.unlink(item.imagePath); } catch {}
+    }
+    await updateCurationImage(req.params.id, filePath);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });

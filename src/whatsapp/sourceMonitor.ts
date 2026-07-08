@@ -1,4 +1,4 @@
-import { Message } from 'whatsapp-web.js';
+import { Message, MessageMedia } from 'whatsapp-web.js';
 import { config } from '../config';
 import { getClient, isClientReady } from './client';
 import { wasRecentlySent, markSent, countSentToday, saveCurationItem } from '../database';
@@ -9,6 +9,7 @@ import { isStoreEnabled, isTypeEnabled, detectSourceFromText, getSettings } from
 import { standardizeForward } from '../shared/standardizer';
 import { shouldCurateAsCoupon } from '../shared/couponGate';
 import { indicatesSingleProduct } from '../shared/urlPolicy';
+import { fetchProductInfo } from '../shared/productPage';
 import { recordActivity } from '../metrics';
 import { isBotEnabled } from '../botState';
 import { createHash } from 'crypto';
@@ -243,6 +244,7 @@ export async function handleSourceMessage(msg: Message): Promise<void> {
 
   console.log(`[SOURCE] promoção detectada em "${chat.name}", repassando...`);
 
+
   // Substitui links por nossos links de afiliado antes de enviar.
   // null = mensagem deve ser descartada (ex: link ML com múltiplos produtos)
   const processedText = await replaceAffiliateLinks(body);
@@ -279,10 +281,21 @@ export async function handleSourceMessage(msg: Message): Promise<void> {
 
   const client = getClient();
 
-  // Baixa a mídia original (se houver) para reenviar com os links já substituídos.
-  // Nunca usamos forward — ele repassaria os links originais de quem postou.
+  // FOTO: a oficial do anúncio no site tem prioridade (não a thumbnail de
+  // preview do link). fetchProductInfo é cacheado — a página já foi lida na
+  // padronização. Fallback: mídia original da mensagem.
   let media: Awaited<ReturnType<typeof msg.downloadMedia>> | null = null;
-  if (msg.hasMedia) {
+  const productLink = processedText.match(/https?:\/\/[^\s]+/)?.[0];
+  if (productLink) {
+    const info = await fetchProductInfo(productLink);
+    if (info.imageUrl) {
+      try {
+        media = await MessageMedia.fromUrl(info.imageUrl, { unsafeMime: true });
+        console.log('[SOURCE] usando foto oficial do anúncio no site');
+      } catch { /* cai no fallback abaixo */ }
+    }
+  }
+  if (!media && msg.hasMedia) {
     try {
       media = await msg.downloadMedia();
     } catch {

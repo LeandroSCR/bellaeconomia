@@ -10,6 +10,7 @@ import { isStoreEnabled, isTypeEnabled, getSettings } from '../settings';
 import { standardizeForward } from '../shared/standardizer';
 import { shouldCurateAsCoupon } from '../shared/couponGate';
 import { indicatesSingleProduct } from '../shared/urlPolicy';
+import { fetchProductInfo } from '../shared/productPage';
 import { recordActivity } from '../metrics';
 import type { Deal } from '../deals/types';
 
@@ -91,6 +92,20 @@ export async function sendDealToGroups(deal: Deal): Promise<boolean> {
     const message = getSettings().standardizeForwards
       ? await standardizeForward(deal.rawText, processed, deal.store)
       : processed;
+
+    // FOTO: a oficial do anúncio no site tem prioridade sobre a thumbnail de
+    // preview salva com a deal (fetchProductInfo é cacheado)
+    const productLink = processed.match(/https?:\/\/[^\s]+/)?.[0];
+    if (productLink) {
+      const info = await fetchProductInfo(productLink);
+      if (info.imageUrl) {
+        // Apaga a mídia local antiga antes de trocar pela URL do site
+        if (deal.imageUrl?.startsWith('local:')) {
+          try { fs.unlinkSync(deal.imageUrl.slice(6)); } catch {}
+        }
+        deal.imageUrl = info.imageUrl;
+      }
+    }
     return deliverMessage(deal, message);
   }
 

@@ -16,6 +16,8 @@ export interface ProductPageInfo {
   title: string | null;
   preco?: number;
   precoOriginal?: number;
+  /** Foto oficial do anúncio no site (og:image / hiRes da Amazon) */
+  imageUrl?: string;
 }
 
 // Cache em memória (inclui negativos) — o mesmo produto aparece em vários grupos
@@ -165,6 +167,22 @@ export function extractPriceFromHtml(html: string): { preco?: number; precoOrigi
   return {};
 }
 
+/** Extrai a foto oficial do anúncio: og:image, hiRes/landingImage da Amazon. */
+export function extractImageFromHtml(html: string): string | undefined {
+  const candidates: (string | undefined)[] = [
+    // og:image (Mercado Livre e maioria das lojas)
+    html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["'](https?:\/\/[^"']+)["']/i)?.[1],
+    html.match(/<meta[^>]+content=["'](https?:\/\/[^"']+)["'][^>]+property=["']og:image["']/i)?.[1],
+    // Amazon: imagem em alta resolução do JSON de imagens
+    html.match(/"hiRes"\s*:\s*"(https?:\/\/[^"]+)"/)?.[1],
+    // Amazon: imagem principal
+    html.match(/id="landingImage"[^>]+data-old-hires="(https?:\/\/[^"]+)"/)?.[1],
+    html.match(/id="landingImage"[^>]+src="(https?:\/\/[^"]+)"/)?.[1],
+  ];
+  const img = candidates.find(u => u && /\.(jpe?g|png|webp|gif)/i.test(u));
+  return img ? decodeEntities(img) : undefined;
+}
+
 /** Busca título e preço do produto na página. Falha = campos vazios (fallback). */
 export async function fetchProductInfo(url: string): Promise<ProductPageInfo> {
   // Testes não fazem rede
@@ -189,8 +207,9 @@ export async function fetchProductInfo(url: string): Promise<ProductPageInfo> {
     const html = String(r.data);
     const title = extractTitleFromHtml(html);
     const { preco, precoOriginal } = extractPriceFromHtml(html);
-    if (title) console.log(`[PAGE] site: "${title.slice(0, 60)}" preço=${preco ?? '—'}`);
-    return remember(url, { title, preco, precoOriginal });
+    const imageUrl = extractImageFromHtml(html);
+    if (title) console.log(`[PAGE] site: "${title.slice(0, 60)}" preço=${preco ?? '—'} foto=${imageUrl ? 'sim' : 'não'}`);
+    return remember(url, { title, preco, precoOriginal, imageUrl });
   } catch (err) {
     console.log(`[PAGE] falha ao buscar página (${(err as Error).message.slice(0, 50)}) — usando fallback`);
     return remember(url, { title: null });

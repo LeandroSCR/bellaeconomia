@@ -4,7 +4,7 @@
 // ══════════════════════════════════════════════════════════════════════════
 
 import { describe, it, expect } from 'vitest';
-import { cleanSiteTitle, extractTitleFromHtml, extractPriceFromHtml } from '../../src/shared/productPage';
+import { cleanSiteTitle, extractTitleFromHtml, extractPriceFromHtml, extractImageFromHtml } from '../../src/shared/productPage';
 
 describe('cleanSiteTitle', () => {
   it('remove sufixos da Amazon', () => {
@@ -127,5 +127,26 @@ describe('extractPriceFromHtml — Mercado Livre (andes)', () => {
 describe('extractPriceFromHtml — preço zero é preservado', () => {
   it('meta price 0 retorna 0 (não vazio)', () => {
     expect(extractPriceFromHtml('<meta itemprop="price" content="0">')).toEqual({ preco: 0 });
+  });
+});
+
+describe('extractImageFromHtml (foto oficial do anúncio)', () => {
+  it('og:image (Mercado Livre e afins)', () => {
+    const html = '<meta property="og:image" content="https://http2.mlstatic.com/D_NQ_NP_123-O.webp">';
+    expect(extractImageFromHtml(html)).toBe('https://http2.mlstatic.com/D_NQ_NP_123-O.webp');
+  });
+
+  it('hiRes da Amazon quando não há og:image', () => {
+    const html = '{"hiRes":"https://m.media-amazon.com/images/I/71abc123._AC_SL1500_.jpg","thumb":"..."}';
+    expect(extractImageFromHtml(html)).toBe('https://m.media-amazon.com/images/I/71abc123._AC_SL1500_.jpg');
+  });
+
+  it('landingImage como último recurso', () => {
+    const html = '<img id="landingImage" data-old-hires="https://m.media-amazon.com/images/I/81xyz.jpg" src="data:...">';
+    expect(extractImageFromHtml(html)).toBe('https://m.media-amazon.com/images/I/81xyz.jpg');
+  });
+
+  it('undefined sem imagem aproveitável', () => {
+    expect(extractImageFromHtml('<html>nada</html>')).toBeUndefined();
   });
 });
