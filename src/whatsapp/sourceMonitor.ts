@@ -1,6 +1,6 @@
 import { Message, MessageMedia } from 'whatsapp-web.js';
 import { config } from '../config';
-import { getClient, isClientReady } from './client';
+import { getClient, isClientReady, reportChatOk, reportChatFailure } from './client';
 import { wasRecentlySent, markSent, countSentToday, saveCurationItem } from '../database';
 import { isSpecialDay } from '../calendar/specialDates';
 import { replaceAffiliateLinks } from './forwarder';
@@ -102,7 +102,18 @@ export async function handleSourceMessage(msg: Message): Promise<void> {
   // Guarda de seguranca: nao processa se o cliente nao estiver pronto
   if (!isClientReady()) return;
 
-  const chat = await msg.getChat();
+  // getChat pode falhar se a sessão WhatsApp entrar em estado zumbi (puppeteer
+  // quebrado). Sem o try/catch isso vira unhandled rejection e a mensagem some
+  // silenciosamente. Contamos as falhas para o watchdog derrubar isReady.
+  let chat: Awaited<ReturnType<typeof msg.getChat>>;
+  try {
+    chat = await msg.getChat();
+    reportChatOk();
+  } catch (err) {
+    reportChatFailure();
+    console.warn(`[SOURCE] getChat falhou (sessão instável?): ${(err as Error).message.slice(0, 60)}`);
+    return;
+  }
   const groupId = chat.id._serialized;
 
   // Só processa se for de um grupo fonte configurado

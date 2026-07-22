@@ -45,6 +45,45 @@ export async function reinitWhatsApp(): Promise<void> {
   await initWhatsApp();
 }
 
+// ── Watchdog de sessão zumbi ────────────────────────────────────────────────
+// A sessão do whatsapp-web.js pode entrar num estado em que isReady=true mas
+// toda operação (getChat) falha no puppeteer. Contamos falhas consecutivas de
+// getChat: passando do limite, marcamos offline e reconectamos automaticamente.
+let consecutiveChatFailures = 0;
+let recovering = false;
+let reconnectAttempts = 0;
+const CHAT_FAILURE_LIMIT = 8;
+const MAX_RECONNECT_ATTEMPTS = 3; // além disso, a sessão está corrompida — pede QR
+
+export function reportChatOk(): void {
+  consecutiveChatFailures = 0;
+  reconnectAttempts = 0; // recuperou de verdade
+}
+
+export function reportChatFailure(): void {
+  consecutiveChatFailures++;
+  if (consecutiveChatFailures < CHAT_FAILURE_LIMIT || recovering) return;
+
+  // Reconexão automática resolve o caso de sessão "zumbi" transitória. Se
+  // várias reconexões seguidas não resolverem, a sessão está corrompida —
+  // paramos de tentar e deixamos offline para o usuário reconectar via QR.
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    isReady = false;
+    console.error('[WATCHDOG] getChat continua falhando após várias reconexões — sessão provavelmente corrompida. Reconecte pelo portal (QR).');
+    consecutiveChatFailures = 0;
+    return;
+  }
+
+  recovering = true;
+  reconnectAttempts++;
+  isReady = false; // portal passa a mostrar offline imediatamente
+  console.error(`[WATCHDOG] ${consecutiveChatFailures} falhas seguidas de getChat — reconectando (tentativa ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
+  reinitWhatsApp()
+    .then(() => console.log('[WATCHDOG] reconexão concluída'))
+    .catch(err => console.error('[WATCHDOG] falha na reconexão:', (err as Error).message))
+    .finally(() => { recovering = false; consecutiveChatFailures = 0; });
+}
+
 export async function initWhatsApp(): Promise<Client> {
   killOrphanWhatsAppChrome();
   const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
