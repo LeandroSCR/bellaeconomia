@@ -49,45 +49,39 @@ export async function reinitWhatsApp(): Promise<void> {
 // A sessão do whatsapp-web.js pode entrar num estado em que isReady=true mas
 // toda operação (getChat) falha no puppeteer. Contamos falhas consecutivas de
 // getChat: passando do limite, marcamos offline e reconectamos automaticamente.
+// MODO DIAGNÓSTICO: watchdog NÃO reconecta sozinho (evita churn durante a
+// investigação). Só conta falhas para o log.
 let consecutiveChatFailures = 0;
-let recovering = false;
-let reconnectAttempts = 0;
-const CHAT_FAILURE_LIMIT = 8;
-const MAX_RECONNECT_ATTEMPTS = 3; // além disso, a sessão está corrompida — pede QR
 
 export function reportChatOk(): void {
+  if (consecutiveChatFailures > 0) console.log(`[WATCHDOG] getChat OK (após ${consecutiveChatFailures} falhas)`);
   consecutiveChatFailures = 0;
-  reconnectAttempts = 0; // recuperou de verdade
 }
 
 export function reportChatFailure(): void {
   consecutiveChatFailures++;
-  if (consecutiveChatFailures < CHAT_FAILURE_LIMIT || recovering) return;
+}
 
-  // Reconexão automática resolve o caso de sessão "zumbi" transitória. Se
-  // várias reconexões seguidas não resolverem, a sessão está corrompida —
-  // paramos de tentar e deixamos offline para o usuário reconectar via QR.
-  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-    isReady = false;
-    console.error('[WATCHDOG] getChat continua falhando após várias reconexões — sessão provavelmente corrompida. Reconecte pelo portal (QR).');
-    consecutiveChatFailures = 0;
-    return;
-  }
-
-  recovering = true;
-  reconnectAttempts++;
-  isReady = false; // portal passa a mostrar offline imediatamente
-  console.error(`[WATCHDOG] ${consecutiveChatFailures} falhas seguidas de getChat — reconectando (tentativa ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
-  reinitWhatsApp()
-    .then(() => console.log('[WATCHDOG] reconexão concluída'))
-    .catch(err => console.error('[WATCHDOG] falha na reconexão:', (err as Error).message))
-    .finally(() => { recovering = false; consecutiveChatFailures = 0; });
+// ── Logging de diagnóstico da inicialização ─────────────────────────────────
+const t0 = Date.now();
+function diag(msg: string): void {
+  const s = ((Date.now() - t0) / 1000).toFixed(1);
+  console.log(`[INIT +${s}s] ${msg}`);
+}
+// Loga o erro COMPLETO (não só .message, que vem minificado como "r")
+function diagErr(where: string, err: unknown): void {
+  const e = err as any;
+  console.error(`[INIT-ERRO] ${where}: name=${e?.name} message=${e?.message}`);
+  if (e?.stack) console.error(`[INIT-ERRO] ${where} stack:\n${e.stack}`);
+  try { console.error(`[INIT-ERRO] ${where} raw: ${JSON.stringify(e, Object.getOwnPropertyNames(e ?? {}))}`); } catch {}
 }
 
 export async function initWhatsApp(): Promise<Client> {
+  diag('initWhatsApp() iniciado — matando chromes órfãos');
   killOrphanWhatsAppChrome();
   const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 
+  diag('criando Client (LocalAuth + puppeteer)...');
   client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
@@ -104,8 +98,16 @@ export async function initWhatsApp(): Promise<Client> {
     },
   });
 
+  // ── Instrumentação de TODOS os eventos do ciclo de vida ───────────────────
+  client.on('loading_screen', (percent: any, message: any) => diag(`loading_screen ${percent}% ${message ?? ''}`));
+  client.on('change_state', (state: any) => diag(`change_state → ${state}`));
+  client.on('authenticated', () => { latestQr = null; diag('evento: authenticated'); });
+  client.on('auth_failure', (m: any) => diagErr('auth_failure', m));
+  client.on('disconnected', (reason: any) => { isReady = false; diag(`evento: disconnected — ${reason}`); });
+
   client.on('qr', (qr: string) => {
     latestQr = qr; // disponível no portal via GET /api/whatsapp/qr
+    diag('evento: qr recebido (aguardando scan)');
     console.log('\nEscaneie o QR code abaixo com o WhatsApp (ou pelo portal):\n');
     qrcode.generate(qr, { small: true });
   });
@@ -113,22 +115,37 @@ export async function initWhatsApp(): Promise<Client> {
   client.on('ready', async () => {
     isReady = true;
     latestQr = null;
-    console.log('\nWhatsApp conectado!');
+    diag('evento: ready — WhatsApp conectado!');
+
+    // Qual versão do WhatsApp Web carregou (chave para o erro "r")
+    try {
+      const wwv = await client!.getWWebVersion();
+      diag(`WhatsApp Web version carregada: ${wwv}`);
+    } catch (err) { diagErr('getWWebVersion', err); }
 
     try {
-      console.log(`Numero do bot: +${client!.info.wid.user}`);
-    } catch {}
+      diag(`Numero do bot: +${client!.info.wid.user}`);
+    } catch (err) { diagErr('client.info.wid', err); }
 
     // Aguarda a sessão carregar completamente antes de listar grupos
+    diag('aguardando 5s antes de getChats...');
     await new Promise(r => setTimeout(r, 5000));
 
     let groups: any[] = [];
     for (let tentativa = 1; tentativa <= 3; tentativa++) {
-      const chats = await client!.getChats().catch(() => []);
+      diag(`getChats() tentativa ${tentativa}/3...`);
+      let chats: any[] = [];
+      try {
+        chats = await client!.getChats();
+        diag(`getChats() OK — ${chats.length} conversas retornadas`);
+      } catch (err) {
+        diagErr(`getChats tentativa ${tentativa}`, err);
+        chats = [];
+      }
       groups = chats.filter((c: any) => c.isGroup);
       if (groups.length > 0) break;
       if (tentativa < 3) {
-        console.log(`Grupos vazios (tentativa ${tentativa}/3), aguardando...`);
+        diag(`Grupos vazios (tentativa ${tentativa}/3), aguardando 5s...`);
         await new Promise(r => setTimeout(r, 5000));
       }
     }
@@ -157,13 +174,23 @@ export async function initWhatsApp(): Promise<Client> {
         }
       }
     }
-  });
 
-  client.on('authenticated', () => { latestQr = null; console.log('WhatsApp autenticado'); });
-  client.on('auth_failure', (msg: string) => console.error('Falha na autenticacao:', msg));
-  client.on('disconnected', (reason: string) => {
-    isReady = false;
-    console.warn('WhatsApp desconectado:', reason);
+    // ── AUTO-TESTE: isola onde o erro "r" acontece ────────────────────────
+    const testId = config.SOURCE_GROUP_IDS[0];
+    if (testId) {
+      diag(`AUTO-TESTE: getChatById("${testId}")...`);
+      try {
+        const c = await client!.getChatById(testId);
+        diag(`AUTO-TESTE getChatById OK: nome="${(c as any)?.name}" isGroup=${(c as any)?.isGroup}`);
+      } catch (err) { diagErr('AUTO-TESTE getChatById', err); }
+
+      diag('AUTO-TESTE: getState()...');
+      try {
+        const st = await client!.getState();
+        diag(`AUTO-TESTE getState OK: ${st}`);
+      } catch (err) { diagErr('AUTO-TESTE getState', err); }
+    }
+    diag('handler ready CONCLUÍDO');
   });
 
   const handleCommand = async (msg: Message) => {

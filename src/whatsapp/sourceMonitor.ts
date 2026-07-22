@@ -18,6 +18,9 @@ import path from 'path';
 
 const MEDIA_DIR = path.join(process.cwd(), 'data', 'media');
 
+// Quantas vezes já logamos o erro completo de getChat (limita poluição)
+let chatErrLogged = 0;
+
 async function saveMediaToDisk(dealId: string, media: { data: string; mimetype: string }): Promise<string> {
   const extMap: Record<string, string> = {
     'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif',
@@ -111,7 +114,16 @@ export async function handleSourceMessage(msg: Message): Promise<void> {
     reportChatOk();
   } catch (err) {
     reportChatFailure();
-    console.warn(`[SOURCE] getChat falhou (sessão instável?): ${(err as Error).message.slice(0, 60)}`);
+    // Loga o erro COMPLETO nas primeiras vezes (stack de dentro da lib revela
+    // onde quebra). Depois só resume, para não poluir.
+    if (chatErrLogged < 3) {
+      chatErrLogged++;
+      const e = err as any;
+      console.error(`[SOURCE-ERRO] msg.getChat de "${msg.from}" author=${(msg as any).author}: name=${e?.name} message=${e?.message}`);
+      if (e?.stack) console.error(`[SOURCE-ERRO] stack:\n${e.stack}`);
+    } else {
+      console.warn(`[SOURCE] getChat falhou: ${(err as Error).message?.slice(0, 40)}`);
+    }
     return;
   }
   const groupId = chat.id._serialized;
