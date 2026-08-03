@@ -430,6 +430,24 @@ process.on('unhandledRejection', (reason) => {
   console.error('[PROMISE NÃO TRATADA]:', reason);
 });
 
+// Desligamento LIMPO: ao reiniciar/parar (PM2 manda SIGINT), fecha o navegador
+// do WhatsApp direito para a sessão persistir e não pedir QR no próximo boot.
+let shuttingDown = false;
+async function gracefulShutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[SHUTDOWN] ${signal} recebido — fechando WhatsApp limpo...`);
+  try {
+    if (isClientReady()) await Promise.race([
+      getClient().destroy(),
+      new Promise(r => setTimeout(r, 8000)), // não trava mais de 8s
+    ]);
+  } catch {}
+  process.exit(0);
+}
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
 // ── Inicialização ─────────────────────────────────────────────────────────
 
 // Inicia o WhatsApp SEM derrubar o processo se falhar. Erros de init como

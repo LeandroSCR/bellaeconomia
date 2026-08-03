@@ -157,69 +157,21 @@ export async function initWhatsApp(): Promise<Client> {
       diag(`Numero do bot: +${client!.info.wid.user}`);
     } catch (err) { diagErr('client.info.wid', err); }
 
-    // Aguarda a sessão carregar completamente antes de listar grupos
-    diag('aguardando 5s antes de getChats...');
-    await new Promise(r => setTimeout(r, 5000));
-
-    let groups: any[] = [];
-    for (let tentativa = 1; tentativa <= 3; tentativa++) {
-      diag(`getChats() tentativa ${tentativa}/3...`);
-      let chats: any[] = [];
-      try {
-        chats = await client!.getChats();
-        diag(`getChats() OK — ${chats.length} conversas retornadas`);
-      } catch (err) {
-        diagErr(`getChats tentativa ${tentativa}`, err);
-        chats = [];
-      }
-      groups = chats.filter((c: any) => c.isGroup);
-      if (groups.length > 0) break;
-      if (tentativa < 3) {
-        diag(`Grupos vazios (tentativa ${tentativa}/3), aguardando 5s...`);
-        await new Promise(r => setTimeout(r, 5000));
-      }
-    }
-
-    if (groups.length === 0) {
-      console.log('AVISO: Nenhum grupo encontrado. O numero do bot precisa estar nos grupos!');
-    } else {
-      console.log('\n=== GRUPOS QUE O BOT PARTICIPA ===');
-      groups.forEach((g: any) => {
-        const isSource = config.SOURCE_GROUP_IDS.includes(g.id._serialized);
-        const isDest   = config.WHATSAPP_GROUP_IDS.includes(g.id._serialized);
-        const tag = isSource ? '[FONTE]' : isDest ? '[DESTINO]' : '[outro]';
-        console.log(`${tag} ${g.name} → ${g.id._serialized}`);
-      });
-      console.log('==================================\n');
-
-      // Avisa se os grupos do .env não foram encontrados
-      for (const id of config.SOURCE_GROUP_IDS) {
-        if (!groups.find((g: any) => g.id._serialized === id)) {
-          console.log(`AVISO: grupo FONTE ${id} não encontrado — o bot está nesse grupo?`);
+    // Listagem de grupos é só informativa. NÃO bloqueia nem sobrecarrega:
+    // 1 tentativa, best-effort. O repasse não depende disso (usa msg.from).
+    diag('conectado — listagem de grupos é opcional, seguindo sem bloquear');
+    client!.getChats()
+      .then((chats: any[]) => {
+        const groups = chats.filter((c: any) => c.isGroup);
+        diag(`getChats() OK — ${groups.length} grupos`);
+        for (const id of config.SOURCE_GROUP_IDS) {
+          if (!groups.find((g: any) => g.id._serialized === id)) {
+            console.log(`AVISO: grupo FONTE ${id} não encontrado na lista (pode estar apenas lento)`);
+          }
         }
-      }
-      for (const id of config.WHATSAPP_GROUP_IDS) {
-        if (!groups.find((g: any) => g.id._serialized === id)) {
-          console.log(`AVISO: grupo DESTINO ${id} não encontrado — o bot está nesse grupo?`);
-        }
-      }
-    }
+      })
+      .catch((err: any) => diag(`getChats() falhou (não crítico — repasse usa msg.from): ${err?.message?.slice(0, 40)}`));
 
-    // ── AUTO-TESTE: isola onde o erro "r" acontece ────────────────────────
-    const testId = config.SOURCE_GROUP_IDS[0];
-    if (testId) {
-      diag(`AUTO-TESTE: getChatById("${testId}")...`);
-      try {
-        const c = await client!.getChatById(testId);
-        diag(`AUTO-TESTE getChatById OK: nome="${(c as any)?.name}" isGroup=${(c as any)?.isGroup}`);
-      } catch (err) { diagErr('AUTO-TESTE getChatById', err); }
-
-      diag('AUTO-TESTE: getState()...');
-      try {
-        const st = await client!.getState();
-        diag(`AUTO-TESTE getState OK: ${st}`);
-      } catch (err) { diagErr('AUTO-TESTE getState', err); }
-    }
     diag('handler ready CONCLUÍDO');
   });
 
@@ -267,16 +219,22 @@ export async function initWhatsApp(): Promise<Client> {
     }
   };
 
-  // Mensagens recebidas de OUTRAS pessoas
+  // Mensagens recebidas de OUTRAS pessoas.
+  // NÃO chamamos getChat aqui (era 1 getChat por mensagem, sobrecarregando a
+  // página). msg.from de grupo já é o id; o log usa ele direto. handleCommand e
+  // handleSourceMessage fazem seus próprios filtros baratos antes de qualquer getChat.
   client.on('message', async (msg: Message) => {
-    const chat = await msg.getChat().catch(() => null);
-    const groupId = (chat as any)?.id?._serialized ?? '';
-    const isSourceGroup = config.SOURCE_GROUP_IDS.includes(groupId);
-
-    console.log(`[MSG] grupo="${(chat as any)?.name ?? msg.from}" fonte=${isSourceGroup} corpo="${msg.body?.slice(0, 60)}"`);
-
-    await handleCommand(msg);
-    await handleSourceMessage(msg);
+    const isSourceGroup = config.SOURCE_GROUP_IDS.includes(msg.from);
+    if (isSourceGroup) {
+      console.log(`[MSG-FONTE] ${msg.from} corpo="${msg.body?.slice(0, 60)}"`);
+    }
+    try {
+      await handleCommand(msg);
+      await handleSourceMessage(msg);
+    } catch (err) {
+      // Nunca deixa erro de processamento virar unhandledRejection
+      console.error('[MSG] erro ao processar:', (err as Error).message?.slice(0, 60));
+    }
   });
 
   // Mensagens enviadas pelo próprio bot (para comandos no mesmo número)

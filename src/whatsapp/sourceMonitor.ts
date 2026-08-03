@@ -18,8 +18,25 @@ import path from 'path';
 
 const MEDIA_DIR = path.join(process.cwd(), 'data', 'media');
 
-// Quantas vezes já logamos o erro completo de getChat (limita poluição)
-let chatErrLogged = 0;
+// Cache de nome de grupo (id → nome). Evita chamar getChat a cada mensagem.
+const groupNameCache = new Map<string, string>();
+
+// Resolve o nome do grupo fonte UMA vez (cacheado). Se getChat falhar/travar,
+// usa o próprio id como fallback — o nome é só cosmético e não pode travar o fluxo.
+async function resolveGroupName(msg: Message, groupId: string): Promise<string> {
+  const cached = groupNameCache.get(groupId);
+  if (cached) return cached;
+  try {
+    const chat = await msg.getChat();
+    reportChatOk();
+    const name = chat.name ?? groupId;
+    groupNameCache.set(groupId, name);
+    return name;
+  } catch {
+    reportChatFailure();
+    return groupId; // fallback: id como nome
+  }
+}
 
 async function saveMediaToDisk(dealId: string, media: { data: string; mimetype: string }): Promise<string> {
   const extMap: Record<string, string> = {
@@ -105,36 +122,18 @@ export async function handleSourceMessage(msg: Message): Promise<void> {
   // Guarda de seguranca: nao processa se o cliente nao estiver pronto
   if (!isClientReady()) return;
 
-  // getChat pode falhar se a sessão WhatsApp entrar em estado zumbi (puppeteer
-  // quebrado). Sem o try/catch isso vira unhandled rejection e a mensagem some
-  // silenciosamente. Contamos as falhas para o watchdog derrubar isReady.
-  let chat: Awaited<ReturnType<typeof msg.getChat>>;
-  try {
-    chat = await msg.getChat();
-    reportChatOk();
-  } catch (err) {
-    reportChatFailure();
-    // Loga o erro COMPLETO nas primeiras vezes (stack de dentro da lib revela
-    // onde quebra). Depois só resume, para não poluir.
-    if (chatErrLogged < 3) {
-      chatErrLogged++;
-      const e = err as any;
-      console.error(`[SOURCE-ERRO] msg.getChat de "${msg.from}" author=${(msg as any).author}: name=${e?.name} message=${e?.message}`);
-      if (e?.stack) console.error(`[SOURCE-ERRO] stack:\n${e.stack}`);
-    } else {
-      console.warn(`[SOURCE] getChat falhou: ${(err as Error).message?.slice(0, 40)}`);
-    }
-    return;
-  }
-  const groupId = chat.id._serialized;
-
-  // Só processa se for de um grupo fonte configurado
+  // OTIMIZAÇÃO CRÍTICA: msg.from de mensagem de grupo JÁ É o id do grupo.
+  // Filtramos por ele SEM chamar getChat (que é lento e sobrecarrega a página
+  // do WhatsApp Web, causando timeouts). Assim getChat só roda para promoções
+  // de grupos fonte de verdade — não para cada newsletter/grupo aleatório.
+  const groupId = msg.from;
   if (!config.SOURCE_GROUP_IDS.includes(groupId)) return;
 
   const body = msg.body?.trim();
   if (!body || body.startsWith('!')) return;
 
-  // Precisa ter URL ou texto com preço para ser uma promoção
+  // Precisa ter URL ou texto com preço para ser uma promoção (checagem barata,
+  // antes de qualquer chamada à página do WhatsApp)
   const urls = body.match(URL_REGEX) ?? [];
   const hasPrice = /R\$\s*[\d.,]+/i.test(body);
   const hasDiscount = /%\s*off|desconto|oferta|promo[çc]/i.test(body);
@@ -146,7 +145,9 @@ export async function handleSourceMessage(msg: Message): Promise<void> {
 
   const title = extractTitle(body);
   const source = detectSourceFromText(body);
-  const group = chat.name;
+  // Nome do grupo (só cosmético para logs/atividade): resolve UMA vez por grupo
+  // e cacheia — não chama getChat a cada mensagem.
+  const group = await resolveGroupName(msg, groupId);
 
   // Dedup por texto exato — janela de 6h (evita reenvio pós-restart sem bloquear promoções do dia seguinte)
   if (await wasRecentlySent(dealId, 6)) {
@@ -265,7 +266,7 @@ export async function handleSourceMessage(msg: Message): Promise<void> {
     return;
   }
 
-  console.log(`[SOURCE] promoção detectada em "${chat.name}", repassando...`);
+  console.log(`[SOURCE] promoção detectada em "${group}", repassando...`);
 
 
   // Substitui links por nossos links de afiliado antes de enviar.
