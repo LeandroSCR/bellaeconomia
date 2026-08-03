@@ -338,13 +338,16 @@ export async function handleSourceMessage(msg: Message): Promise<void> {
 
       await markSent(dealId, destGroupId, 'source_forward');
       markSentNow();
+      reportChatOk(); // envio ok: sessão saudável
       recordActivity({ type: 'sent', message: title, source, group });
       console.log(`[SOURCE] repassado para ${destGroupId}`);
 
       // Pequena pausa entre grupos
       await sleep(1500);
     } catch (err) {
-      console.error(`[SOURCE] erro ao repassar para ${destGroupId}:`, (err as Error).message);
+      const emsg = (err as Error).message;
+      console.error(`[SOURCE] erro ao repassar para ${destGroupId}:`, emsg);
+      if (/timed out|Protocol error|Target closed|Session closed/i.test(emsg)) reportChatFailure();
     }
   }
 

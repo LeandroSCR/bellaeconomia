@@ -10,8 +10,8 @@ import { config } from '../config';
 function killOrphanWhatsAppChrome(): void {
   try {
     execSync(
-      `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"Name='chrome.exe'\\" | Where-Object { $_.CommandLine -like '*wwebjs_auth*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"`,
-      { stdio: 'ignore', timeout: 15000 }
+      `powershell -NoProfile -WindowStyle Hidden -Command "Get-CimInstance Win32_Process -Filter \\"Name='chrome.exe'\\" | Where-Object { $_.CommandLine -like '*wwebjs_auth*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"`,
+      { stdio: 'ignore', timeout: 15000, windowsHide: true } // windowsHide: sem janela CMD/PowerShell piscando
     );
   } catch { /* melhor tentar iniciar mesmo assim */ }
 }
@@ -19,6 +19,7 @@ function killOrphanWhatsAppChrome(): void {
 let client: Client | null = null;
 let isReady = false;
 let latestQr: string | null = null;
+let initializing = false; // trava: impede dois initWhatsApp concorrentes (retry + watchdog)
 
 export function getClient(): Client {
   if (!client) throw new Error('WhatsApp client nao inicializado');
@@ -36,6 +37,7 @@ export function getLatestQr(): string | null {
 
 /** Destrói o cliente atual e inicializa do zero (força novo QR quando deslogado). */
 export async function reinitWhatsApp(): Promise<void> {
+  if (initializing) { console.log('[WHATSAPP] init já em andamento — ignorando reinit'); return; }
   if (client) {
     try { await client.destroy(); } catch {}
     client = null;
@@ -45,21 +47,44 @@ export async function reinitWhatsApp(): Promise<void> {
   await initWhatsApp();
 }
 
-// ── Watchdog de sessão zumbi ────────────────────────────────────────────────
-// A sessão do whatsapp-web.js pode entrar num estado em que isReady=true mas
-// toda operação (getChat) falha no puppeteer. Contamos falhas consecutivas de
-// getChat: passando do limite, marcamos offline e reconectamos automaticamente.
-// MODO DIAGNÓSTICO: watchdog NÃO reconecta sozinho (evita churn durante a
-// investigação). Só conta falhas para o log.
-let consecutiveChatFailures = 0;
+// ── Watchdog de AUTO-RECUPERAÇÃO ────────────────────────────────────────────
+// A página do WhatsApp Web pode travar (isReady=true mas getChat/envio dão
+// timeout `Runtime.callFunctionOn timed out`). Quando as operações degradam,
+// reiniciamos o cliente SOZINHO — reusa a sessão salva (LocalAuth), então
+// reconecta sem QR se a sessão for válida. É o que mantém o bot rodando sem
+// intervenção manual.
+let opFailures = 0;
+let readyAt = 0;
+let lastReinit = 0;
+let recovering = false;
+const FAILURE_LIMIT = 10;            // falhas após estabilizar → reinicia
+const GRACE_MS = 90_000;            // ignora falhas nos 90s após conectar (backlog)
+const REINIT_COOLDOWN_MS = 180_000; // no máx 1 reinício automático a cada 3min
+
+export function markReadyNow(): void {
+  readyAt = Date.now();
+  opFailures = 0;
+}
 
 export function reportChatOk(): void {
-  if (consecutiveChatFailures > 0) console.log(`[WATCHDOG] getChat OK (após ${consecutiveChatFailures} falhas)`);
-  consecutiveChatFailures = 0;
+  opFailures = 0;
 }
 
 export function reportChatFailure(): void {
-  consecutiveChatFailures++;
+  // Ignora falhas na janela de estabilização (WhatsApp reenvia backlog ao conectar)
+  if (readyAt === 0 || Date.now() - readyAt < GRACE_MS) return;
+  opFailures++;
+  if (opFailures < FAILURE_LIMIT || recovering) return;
+  if (Date.now() - lastReinit < REINIT_COOLDOWN_MS) return; // evita churn
+
+  recovering = true;
+  lastReinit = Date.now();
+  isReady = false; // portal mostra offline enquanto recupera
+  console.error(`[WATCHDOG] ${opFailures} falhas de operação após estabilizar — sessão travada, reiniciando cliente automaticamente...`);
+  reinitWhatsApp()
+    .then(() => console.log('[WATCHDOG] cliente reiniciado com sucesso'))
+    .catch(err => console.error('[WATCHDOG] falha ao reiniciar:', (err as Error).message))
+    .finally(() => { recovering = false; opFailures = 0; });
 }
 
 // ── Logging de diagnóstico da inicialização ─────────────────────────────────
@@ -77,6 +102,7 @@ function diagErr(where: string, err: unknown): void {
 }
 
 export async function initWhatsApp(): Promise<Client> {
+  initializing = true;
   diag('initWhatsApp() iniciado — matando chromes órfãos');
   killOrphanWhatsAppChrome();
   const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
@@ -86,6 +112,9 @@ export async function initWhatsApp(): Promise<Client> {
     authStrategy: new LocalAuth(),
     puppeteer: {
       executablePath: CHROME_PATH,
+      // Timeout de protocolo maior: envios com mídia grande podem demorar; o
+      // watchdog cuida de travamentos reais (não deixa preso pra sempre).
+      protocolTimeout: 120_000,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -115,6 +144,7 @@ export async function initWhatsApp(): Promise<Client> {
   client.on('ready', async () => {
     isReady = true;
     latestQr = null;
+    markReadyNow(); // inicia a janela de estabilização do watchdog
     diag('evento: ready — WhatsApp conectado!');
 
     // Qual versão do WhatsApp Web carregou (chave para o erro "r")
@@ -254,6 +284,10 @@ export async function initWhatsApp(): Promise<Client> {
     if (msg.fromMe) await handleCommand(msg);
   });
 
-  await client.initialize();
+  try {
+    await client.initialize();
+  } finally {
+    initializing = false; // libera a trava (sucesso ou falha)
+  }
   return client;
 }

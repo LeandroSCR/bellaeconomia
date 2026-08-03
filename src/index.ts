@@ -432,20 +432,38 @@ process.on('unhandledRejection', (reason) => {
 
 // ── Inicialização ─────────────────────────────────────────────────────────
 
+// Inicia o WhatsApp SEM derrubar o processo se falhar. Erros de init como
+// "Execution context was destroyed" (a página navega durante a init) NÃO podem
+// mais causar process.exit → PM2 restart → loop. Em vez disso, tenta de novo
+// com backoff. Isso mantém o portal no ar e o bot se auto-recuperando.
+let whatsappRetryMs = 15_000;
+async function startWhatsAppResilient(): Promise<void> {
+  try {
+    await initWhatsApp();
+    whatsappRetryMs = 15_000; // sucesso: reseta o backoff
+  } catch (err) {
+    const wait = whatsappRetryMs;
+    whatsappRetryMs = Math.min(whatsappRetryMs * 2, 120_000); // backoff até 2min
+    console.error(`[INIT] falha ao iniciar WhatsApp (${(err as Error).message?.slice(0, 60)}) — nova tentativa em ${wait / 1000}s`);
+    setTimeout(startWhatsAppResilient, wait);
+  }
+}
+
 async function main() {
   console.log('BellaEconomia iniciando...');
-  await cleanOldShopeeDeals();
-  await cleanOldCurationItems();
+  await cleanOldShopeeDeals().catch(() => {});
+  await cleanOldCurationItems().catch(() => {});
 
   app.listen(config.PORT, () => {
     console.log(`Bot + Portal rodando em http://localhost:${config.PORT}`);
   });
 
-  await initWhatsApp();
-  startScheduler();
+  startScheduler();       // scheduler não depende do WhatsApp estar pronto
+  startWhatsAppResilient(); // não bloqueia nem derruba o processo se falhar
 }
 
 main().catch(err => {
-  console.error('Erro fatal:', err);
-  process.exit(1);
+  // Só chega aqui por erro FATAL de infra (porta ocupada, DB). WhatsApp já não
+  // derruba o processo. Mesmo assim, não saímos em loop — logamos e seguimos.
+  console.error('[FATAL] erro na inicialização:', err);
 });

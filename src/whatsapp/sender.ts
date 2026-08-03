@@ -1,4 +1,4 @@
-import { getClient, isClientReady } from './client';
+import { getClient, isClientReady, reportChatOk, reportChatFailure } from './client';
 import { MessageMedia } from 'whatsapp-web.js';
 import { config } from '../config';
 import fs from 'fs';
@@ -159,11 +159,15 @@ async function deliverMessage(deal: Deal, message: string): Promise<boolean> {
       }
       await markSent(deal.id, groupId);
       sent = true;
+      reportChatOk(); // envio bem-sucedido: sessão saudável
       recordActivity({ type: 'sent', message: deal.title.slice(0, 60), source: deal.source });
       console.log(`Enviado para ${groupId}: ${deal.title.slice(0, 60)}`);
       await sleep(2000);
     } catch (err) {
-      console.error(`Erro ao enviar para ${groupId}:`, (err as Error).message);
+      const msg = (err as Error).message;
+      console.error(`Erro ao enviar para ${groupId}:`, msg);
+      // Timeout de protocolo = página travada → conta para o watchdog recuperar
+      if (/timed out|Protocol error|Target closed|Session closed/i.test(msg)) reportChatFailure();
     }
   }
 
